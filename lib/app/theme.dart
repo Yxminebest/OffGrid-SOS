@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+/// RescueLink Week 2 — Emergency Red design system.
+/// Important: status is never communicated by color alone; icon + text are used too.
 class AppColors {
   static const background = Color(0xFF0F1419);
   static const surface = Color(0xFF1B222A);
@@ -8,12 +10,13 @@ class AppColors {
   static const text = Color(0xFFFFFFFF);
   static const muted = Color(0xFFA9B3BD);
 
-  static const sos = Color(0xFFD55E00);
+  // Theme A — Emergency Red
+  static const sos = Color(0xFFD32F2F);
+  static const error = Color(0xFF9F1239);
   static const rescue = Color(0xFF0072B2);
   static const success = Color(0xFF009E73);
   static const pending = Color(0xFFE69F00);
   static const info = Color(0xFF56B4E9);
-  static const error = Color(0xFFCC3311);
 }
 
 ThemeData buildTheme() {
@@ -55,34 +58,7 @@ ThemeData buildTheme() {
         fontWeight: FontWeight.w800,
       ),
     ),
-    cardTheme: CardThemeData(
-      color: AppColors.surface,
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
-        side: const BorderSide(color: AppColors.border),
-      ),
-    ),
     dividerColor: AppColors.border,
-    navigationBarTheme: NavigationBarThemeData(
-      height: 72,
-      backgroundColor: AppColors.surface,
-      indicatorColor: AppColors.surfaceSoft,
-      labelTextStyle: WidgetStateProperty.resolveWith((states) => TextStyle(
-            fontSize: 12,
-            fontWeight: states.contains(WidgetState.selected)
-                ? FontWeight.w700
-                : FontWeight.w500,
-            color: states.contains(WidgetState.selected)
-                ? AppColors.text
-                : AppColors.muted,
-          )),
-      iconTheme: WidgetStateProperty.resolveWith((states) => IconThemeData(
-            color: states.contains(WidgetState.selected)
-                ? AppColors.sos
-                : AppColors.muted,
-          )),
-    ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: AppColors.surface,
@@ -101,6 +77,7 @@ ThemeData buildTheme() {
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
         minimumSize: const Size(44, 52),
+        foregroundColor: AppColors.text,
         textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
@@ -112,9 +89,6 @@ ThemeData buildTheme() {
         side: const BorderSide(color: AppColors.border),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
-    ),
-    iconButtonTheme: IconButtonThemeData(
-      style: IconButton.styleFrom(minimumSize: const Size(44, 44)),
     ),
     snackBarTheme: SnackBarThemeData(
       backgroundColor: AppColors.surfaceSoft,

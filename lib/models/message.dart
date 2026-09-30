@@ -1,7 +1,8 @@
 enum MessageKind { text, image, video, voice, location }
 
-/// pending = ค้างส่ง, sent = ส่งแล้ว, synced = ซิงก์ขึ้นคลาวด์แล้ว
-enum DeliveryStatus { pending, sent, synced }
+/// pending = ค้างส่ง, sent = ส่งถึงอุปกรณ์, synced = ซิงก์ Cloud สำเร็จ,
+/// error = ส่งไม่สำเร็จแต่ยังเก็บอยู่ใน Local DB เพื่อให้ลองใหม่.
+enum DeliveryStatus { pending, sent, synced, error }
 
 class Message {
   Message({
@@ -10,7 +11,7 @@ class Message {
     required this.senderName,
     required this.kind,
     required this.createdAt,
-    this.text, // ข้อความ หรือ "คำถอดความ" ของเสียง
+    this.text,
     this.mediaPath,
     this.durationSeconds,
     this.lat,
@@ -22,7 +23,7 @@ class Message {
     this.isMine = true,
   });
 
-  final String id; // UUID ใช้กันข้อความซ้ำตอน relay
+  final String id;
   final String senderId;
   final String senderName;
   final MessageKind kind;
@@ -30,27 +31,27 @@ class Message {
   final String? text;
   final String? mediaPath;
   final int? durationSeconds;
-  final double? lat, lon, accuracy;
+  final double? lat;
+  final double? lon;
+  final double? accuracy;
   DeliveryStatus status;
-  int ttl, hops;
+  int ttl;
+  int hops;
   bool isMine;
 
   Map<String, dynamic> toJson() => {
-        'id': id, 'senderId': senderId, 'senderName': senderName,
-        'kind': kind.name, 'createdAt': createdAt.toIso8601String(),
-        'text': text, 'durationSeconds': durationSeconds,
-        'lat': lat, 'lon': lon, 'accuracy': accuracy,
-        'ttl': ttl, 'hops': hops,
+        'id': id,
+        'senderId': senderId,
+        'senderName': senderName,
+        'kind': kind.name,
+        'createdAt': createdAt.toIso8601String(),
+        'text': text,
+        'durationSeconds': durationSeconds,
+        'lat': lat,
+        'lon': lon,
+        'accuracy': accuracy,
+        'status': status.name,
+        'ttl': ttl,
+        'hops': hops,
       };
-
-  factory Message.fromJson(Map<String, dynamic> j) => Message(
-        id: j['id'], senderId: j['senderId'], senderName: j['senderName'],
-        kind: MessageKind.values.byName(j['kind']),
-        createdAt: DateTime.parse(j['createdAt']),
-        text: j['text'], durationSeconds: j['durationSeconds'],
-        lat: (j['lat'] as num?)?.toDouble(), lon: (j['lon'] as num?)?.toDouble(),
-        accuracy: (j['accuracy'] as num?)?.toDouble(),
-        ttl: j['ttl'] ?? 5, hops: j['hops'] ?? 0,
-        status: DeliveryStatus.sent, isMine: false,
-      );
 }

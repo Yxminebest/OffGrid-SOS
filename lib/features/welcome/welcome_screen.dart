@@ -5,7 +5,8 @@ import '../../widgets/app_card.dart';
 
 class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({super.key, required this.onDone});
-  final void Function(LocalIdentity) onDone;
+
+  final void Function(LocalIdentity identity) onDone;
 
   @override
   State<WelcomeScreen> createState() => _WelcomeScreenState();
@@ -16,36 +17,43 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   final _password = TextEditingController();
   final _first = TextEditingController();
   final _last = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    _first.addListener(_refresh);
-    _last.addListener(_refresh);
-  }
-
-  void _refresh() => setState(() {});
+  bool _busy = false;
 
   @override
   void dispose() {
-    for (final c in [_email, _password, _first, _last]) {
-      c.dispose();
-    }
+    _email.dispose();
+    _password.dispose();
+    _first.dispose();
+    _last.dispose();
     super.dispose();
   }
 
-  bool get _guestReady =>
-      _first.text.trim().isNotEmpty && _last.text.trim().isNotEmpty;
-
-  Future<void> _startGuest() async {
-    final id = await IdentityService.createGuest(_first.text, _last.text);
-    widget.onDone(id);
+  Future<void> _login() async {
+    if (_email.text.trim().isEmpty || _password.text.isEmpty) {
+      _show('กรุณากรอกอีเมลและรหัสผ่าน');
+      return;
+    }
+    setState(() => _busy = true);
+    final identity = await IdentityService.createDemoMember(_email.text);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    widget.onDone(identity);
   }
 
-  void _login() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('ระบบสมาชิกจะเชื่อม Firebase ใน Week 3')),
-    );
+  Future<void> _guest() async {
+    if (_first.text.trim().isEmpty || _last.text.trim().isEmpty) {
+      _show('กรุณากรอกชื่อจริงและนามสกุล');
+      return;
+    }
+    setState(() => _busy = true);
+    final identity = await IdentityService.createGuest(_first.text, _last.text);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    widget.onDone(identity);
+  }
+
+  void _show(String text) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
   @override
@@ -53,39 +61,51 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     return Scaffold(
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.fromLTRB(20, 28, 20, 28),
           children: [
-            const SizedBox(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'RescueLink',
+                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: const Text(
+                    'OFF-GRID READY',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 28),
             const Center(
-              child: CircleAvatar(
-                radius: 42,
-                backgroundColor: AppColors.surface,
-                child: Icon(Icons.health_and_safety_outlined,
-                    size: 46, color: AppColors.rescue),
-              ),
+              child: Icon(Icons.health_and_safety_outlined,
+                  size: 52, color: AppColors.rescue),
             ),
-            const SizedBox(height: 16),
-            const Text('RescueLink',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             const Text(
-              'ขอความช่วยเหลือและสื่อสารกับอุปกรณ์ใกล้เคียงได้ แม้อินเทอร์เน็ตไม่พร้อมใช้งาน',
+              'ยินดีต้อนรับ',
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.muted, fontSize: 16),
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
             ),
-            const SizedBox(height: 26),
+            const SizedBox(height: 24),
             AppCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const Text('เป็นสมาชิก',
-                      style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _email,
                     keyboardType: TextInputType.emailAddress,
-                    autofillHints: const [AutofillHints.email],
                     decoration: const InputDecoration(labelText: 'อีเมล'),
                   ),
                   const SizedBox(height: 10),
@@ -97,32 +117,31 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                   const SizedBox(height: 12),
                   FilledButton(
                     style: FilledButton.styleFrom(backgroundColor: AppColors.rescue),
-                    onPressed: _login,
+                    onPressed: _busy ? null : _login,
                     child: const Text('เข้าสู่ระบบ'),
                   ),
                 ],
               ),
             ),
             const Padding(
-              padding: EdgeInsets.symmetric(vertical: 18),
-              child: Row(children: [
-                Expanded(child: Divider()),
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 12),
-                  child: Text('หรือ', style: TextStyle(color: AppColors.muted)),
-                ),
-                Expanded(child: Divider()),
-              ]),
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Row(
+                children: [
+                  Expanded(child: Divider()),
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12),
+                    child: Text('หรือ', style: TextStyle(color: AppColors.muted)),
+                  ),
+                  Expanded(child: Divider()),
+                ],
+              ),
             ),
             AppCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Text('ใช้งานโดยไม่สมัครสมาชิก',
-                      style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 6),
-                  const Text('กรอกชื่อจริงและนามสกุลเพื่อใช้งานแบบออฟไลน์',
-                      style: TextStyle(color: AppColors.muted)),
+                  const Text('ยังไม่เป็นสมาชิก',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _first,
@@ -134,16 +153,24 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                     decoration: const InputDecoration(labelText: 'นามสกุล *'),
                   ),
                   const SizedBox(height: 12),
-                  FilledButton.tonal(
-                    onPressed: _guestReady ? _startGuest : null,
-                    child: const Text('ใช้งานโดยไม่สมัครสมาชิก'),
+                  OutlinedButton(
+                    onPressed: _busy ? null : _guest,
+                    child: const Text('ใช้งานโดยไม่สมัคร'),
                   ),
                   const SizedBox(height: 8),
-                  const Text('ใช้ได้ตอนออฟไลน์ · สมัครและผูกบัญชีภายหลังได้',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: AppColors.muted, fontSize: 13)),
+                  const Text(
+                    'Guest ใช้งานฟังก์ชัน Offline-First ได้ และผูกบัญชีภายหลังได้',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: AppColors.muted, fontSize: 13),
+                  ),
                 ],
               ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Week 2: ปุ่มเข้าสู่ระบบจำลองการผ่านหน้า Login เพื่อทดสอบ Flow; Firebase Auth จะเชื่อมใน Week 3',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.muted, fontSize: 12),
             ),
           ],
         ),

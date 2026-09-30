@@ -6,30 +6,23 @@ import 'models/local_identity.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const OffGridApp());
+  runApp(const RescueLinkApp());
 }
 
-class OffGridApp extends StatefulWidget {
-  const OffGridApp({super.key});
+class RescueLinkApp extends StatefulWidget {
+  const RescueLinkApp({super.key});
 
   @override
-  State<OffGridApp> createState() => _OffGridAppState();
+  State<RescueLinkApp> createState() => _RescueLinkAppState();
 }
 
-class _OffGridAppState extends State<OffGridApp> {
+class _RescueLinkAppState extends State<RescueLinkApp> {
   LocalIdentity? _me;
-  bool _loading = true;
 
-  @override
-  void initState() {
-    super.initState();
-    IdentityService.load().then((id) {
-      if (!mounted) return;
-      setState(() {
-        _me = id;
-        _loading = false;
-      });
-    });
+  Future<void> _logout() async {
+    await IdentityService.clear();
+    if (!mounted) return;
+    setState(() => _me = null);
   }
 
   @override
@@ -38,11 +31,9 @@ class _OffGridAppState extends State<OffGridApp> {
       title: 'RescueLink',
       debugShowCheckedModeBanner: false,
       theme: buildTheme(),
-      home: _loading
-          ? const Scaffold(body: Center(child: CircularProgressIndicator()))
-          : _me == null
-              ? WelcomeScreen(onDone: (id) => setState(() => _me = id))
-              : HomeShell(me: _me!),
+      home: _me == null
+          ? WelcomeScreen(onDone: (identity) => setState(() => _me = identity))
+          : HomeShell(me: _me!, onLogout: _logout),
     );
   }
 }

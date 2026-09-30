@@ -9,14 +9,16 @@ class StatusBadge extends StatelessWidget {
     super.key,
     required this.kind,
     required this.name,
-    this.detail,
+    required this.detail,
+    this.description,
     this.onTap,
     this.actionLabel,
   });
 
   final PeerKind kind;
   final String name;
-  final String? detail;
+  final String detail;
+  final String? description;
   final VoidCallback? onTap;
   final String? actionLabel;
 
@@ -32,10 +34,10 @@ class StatusBadge extends StatelessWidget {
         PeerKind.normal => 'USER',
       };
 
-  String get _description => switch (kind) {
+  String get _defaultDescription => switch (kind) {
         PeerKind.sos => 'ต้องการความช่วยเหลือ',
         PeerKind.rescue => 'หน่วยกู้ภัย',
-        PeerKind.normal => 'ผู้ใช้ทั่วไป',
+        PeerKind.normal => 'ผู้ใช้ทั่วไป · พร้อมช่วย Relay',
       };
 
   Color get _color => switch (kind) {
@@ -46,79 +48,82 @@ class StatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final label = '$name, $_code, $_description${detail == null ? '' : ', $detail'}';
+    final desc = description ?? _defaultDescription;
     return Semantics(
       button: onTap != null,
-      label: label,
+      label: '$_code $name, $desc, $detail',
       hint: onTap != null ? 'แตะสองครั้งเพื่อเปิดการสนทนา' : null,
       child: AppCard(
-        borderColor: _color.withOpacity(.8),
+        borderColor: _color.withOpacity(.85),
+        padding: EdgeInsets.zero,
         child: InkWell(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.all(2),
+            padding: const EdgeInsets.all(14),
             child: Column(
               children: [
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Container(
-                      width: 46,
-                      height: 46,
+                      width: 44,
+                      height: 44,
                       decoration: BoxDecoration(
                         color: _color.withOpacity(.14),
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Icon(_icon, color: _color, size: 28),
+                      child: Icon(_icon, color: _color, size: 27),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(children: [
-                            Text(_code,
+                          Row(
+                            children: [
+                              Text(
+                                _code,
                                 style: TextStyle(
                                   color: _color,
-                                  fontWeight: FontWeight.w800,
                                   fontSize: 15,
-                                  letterSpacing: .4,
-                                )),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(name,
-                                  maxLines: 1,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  name,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
-                                    color: AppColors.text,
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 17,
-                                  )),
-                            ),
-                          ]),
-                          const SizedBox(height: 3),
-                          Text(_description,
-                              style: const TextStyle(
-                                  color: AppColors.text, fontSize: 15)),
-                          if (detail != null) ...[
-                            const SizedBox(height: 3),
-                            Text(detail!,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                detail,
                                 style: const TextStyle(
-                                    color: AppColors.muted, fontSize: 14)),
-                          ],
+                                  color: AppColors.muted,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(desc, style: const TextStyle(color: AppColors.muted)),
                         ],
                       ),
                     ),
                   ],
                 ),
-                if (onTap != null && actionLabel != null) ...[
-                  const SizedBox(height: 12),
+                if (actionLabel != null && onTap != null) ...[
+                  const SizedBox(height: 10),
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
                       onPressed: onTap,
-                      icon: const Icon(Icons.chat_bubble_outline_rounded, size: 20),
+                      icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
                       label: Text(actionLabel!),
                     ),
                   ),
