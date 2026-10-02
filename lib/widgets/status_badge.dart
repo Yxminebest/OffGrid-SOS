@@ -23,28 +23,28 @@ class StatusBadge extends StatelessWidget {
   final String? actionLabel;
 
   IconData get _icon => switch (kind) {
-        PeerKind.sos => Icons.warning_amber_rounded,
-        PeerKind.rescue => Icons.health_and_safety_outlined,
-        PeerKind.normal => Icons.person_outline_rounded,
-      };
+    PeerKind.sos => Icons.warning_amber_rounded,
+    PeerKind.rescue => Icons.health_and_safety_outlined,
+    PeerKind.normal => Icons.person_outline_rounded,
+  };
 
   String get _code => switch (kind) {
-        PeerKind.sos => 'SOS',
-        PeerKind.rescue => 'RESCUE',
-        PeerKind.normal => 'USER',
-      };
+    PeerKind.sos => 'SOS',
+    PeerKind.rescue => 'RESCUE',
+    PeerKind.normal => 'USER',
+  };
 
   String get _defaultDescription => switch (kind) {
-        PeerKind.sos => 'ต้องการความช่วยเหลือ',
-        PeerKind.rescue => 'หน่วยกู้ภัย',
-        PeerKind.normal => 'ผู้ใช้ทั่วไป · พร้อมช่วย Relay',
-      };
+    PeerKind.sos => 'ต้องการความช่วยเหลือ',
+    PeerKind.rescue => 'หน่วยกู้ภัย',
+    PeerKind.normal => 'ผู้ใช้ทั่วไป · พร้อมช่วย Relay',
+  };
 
   Color get _color => switch (kind) {
-        PeerKind.sos => AppColors.sos,
-        PeerKind.rescue => AppColors.rescue,
-        PeerKind.normal => AppColors.muted,
-      };
+    PeerKind.sos => AppColors.sos,
+    PeerKind.rescue => AppColors.rescue,
+    PeerKind.normal => AppColors.muted,
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -54,7 +54,7 @@ class StatusBadge extends StatelessWidget {
       label: '$_code $name, $desc, $detail',
       hint: onTap != null ? 'แตะสองครั้งเพื่อเปิดการสนทนา' : null,
       child: AppCard(
-        borderColor: _color.withOpacity(.85),
+        borderColor: _color.withValues(alpha: .85),
         padding: EdgeInsets.zero,
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
@@ -70,7 +70,7 @@ class StatusBadge extends StatelessWidget {
                       width: 44,
                       height: 44,
                       decoration: BoxDecoration(
-                        color: _color.withOpacity(.14),
+                        color: _color.withValues(alpha: .14),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Icon(_icon, color: _color, size: 27),
@@ -111,7 +111,10 @@ class StatusBadge extends StatelessWidget {
                             ],
                           ),
                           const SizedBox(height: 4),
-                          Text(desc, style: const TextStyle(color: AppColors.muted)),
+                          Text(
+                            desc,
+                            style: const TextStyle(color: AppColors.muted),
+                          ),
                         ],
                       ),
                     ),
@@ -123,7 +126,10 @@ class StatusBadge extends StatelessWidget {
                     width: double.infinity,
                     child: OutlinedButton.icon(
                       onPressed: onTap,
-                      icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
+                      icon: const Icon(
+                        Icons.chat_bubble_outline_rounded,
+                        size: 18,
+                      ),
                       label: Text(actionLabel!),
                     ),
                   ),

@@ -1,436 +1,383 @@
 import 'package:flutter/material.dart';
-import 'package:uuid/uuid.dart';
+
 import '../../app/theme.dart';
-import '../../models/local_identity.dart';
-import '../../models/message.dart';
-import '../../widgets/app_card.dart';
-import '../../widgets/status_badge.dart';
-
-class ChatHubScreen extends StatelessWidget {
-  const ChatHubScreen({super.key, required this.me});
-
-  final LocalIdentity me;
-
-  @override
-  Widget build(BuildContext context) {
-    const chats = [
-      ('Somchai', PeerKind.sos, 'ช่วยด้วยครับ ผมติดอยู่ในอาคาร', 'ตอนนี้'),
-      ('Rescue Team', PeerKind.rescue, 'กำลังเดินทางไปยังจุดนัดพบ', '5 นาที'),
-    ];
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('แชท')),
-      body: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 110),
-        itemCount: chats.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 10),
-        itemBuilder: (context, index) {
-          final chat = chats[index];
-          final color = chat.$2 == PeerKind.sos ? AppColors.sos : AppColors.rescue;
-          return AppCard(
-            padding: EdgeInsets.zero,
-            borderColor: color.withOpacity(.75),
-            child: ListTile(
-              minTileHeight: 76,
-              leading: CircleAvatar(
-                backgroundColor: color.withOpacity(.14),
-                child: Icon(
-                  chat.$2 == PeerKind.sos
-                      ? Icons.warning_amber_rounded
-                      : Icons.health_and_safety_outlined,
-                  color: color,
-                ),
-              ),
-              title: Row(
-                children: [
-                  Expanded(
-                    child: Text(chat.$1,
-                        style: const TextStyle(fontWeight: FontWeight.w800)),
-                  ),
-                  Text(chat.$4,
-                      style: const TextStyle(color: AppColors.muted, fontSize: 12)),
-                ],
-              ),
-              subtitle: Text(
-                chat.$3,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: AppColors.muted),
-              ),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => ChatScreen(
-                    me: me,
-                    peerName: chat.$1,
-                    peerKind: chat.$2,
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
+import '../../data/models/local_message_record.dart';
+import '../../data/repositories/message_repository.dart';
+import '../../models/user.dart';
+import '../../services/sync_service.dart';
 
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({
-    super.key,
-    required this.me,
-    required this.peerName,
-    required this.peerKind,
-  });
+  const ChatScreen({super.key, required this.me});
 
-  final LocalIdentity me;
-  final String peerName;
-  final PeerKind peerKind;
+  final AppUser me;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  final _controller = TextEditingController();
-  late final List<Message> _messages;
+  final TextEditingController _message = TextEditingController();
 
-  @override
-  void initState() {
-    super.initState();
-    _messages = [
-      Message(
-        id: 'incoming-help',
-        senderId: 'peer',
-        senderName: widget.peerName,
-        kind: MessageKind.text,
-        createdAt: DateTime.now(),
-        text: 'ช่วยด้วยครับ\nผมติดอยู่ในอาคาร\n📍 ตำแหน่งล่าสุดแนบมากับ SOS',
-        status: DeliveryStatus.sent,
-        isMine: false,
-      ),
-      Message(
-        id: 'sent-demo',
-        senderId: widget.me.id,
-        senderName: widget.me.fullName,
-        kind: MessageKind.text,
-        createdAt: DateTime.now(),
-        text: 'กำลังไปช่วย',
-        status: DeliveryStatus.sent,
-      ),
-      Message(
-        id: 'synced-demo',
-        senderId: widget.me.id,
-        senderName: widget.me.fullName,
-        kind: MessageKind.text,
-        createdAt: DateTime.now(),
-        text: 'รับทราบตำแหน่งแล้ว',
-        status: DeliveryStatus.synced,
-      ),
-      Message(
-        id: 'pending-demo',
-        senderId: widget.me.id,
-        senderName: widget.me.fullName,
-        kind: MessageKind.text,
-        createdAt: DateTime.now(),
-        text: 'กำลังส่งพิกัดของฉัน',
-        status: DeliveryStatus.pending,
-      ),
-      Message(
-        id: 'error-demo',
-        senderId: widget.me.id,
-        senderName: widget.me.fullName,
-        kind: MessageKind.image,
-        createdAt: DateTime.now(),
-        status: DeliveryStatus.error,
-      ),
-    ];
-  }
+  final MessageRepository _repository = MessageRepository();
 
-  void _queue(Message message) {
-    setState(() => _messages.add(message));
-    _simulateSend(message);
-  }
-
-  void _simulateSend(Message message) {
-    // Week 2 mock: Local DB -> Nearby/Relay -> Cloud Sync.
-    // Week 3-4: replace with real repositories/services.
-    Future.delayed(const Duration(seconds: 1), () {
-      if (!mounted || message.status == DeliveryStatus.error) return;
-      setState(() => message.status = DeliveryStatus.sent);
-    });
-    Future.delayed(const Duration(seconds: 3), () {
-      if (!mounted || message.status == DeliveryStatus.error) return;
-      setState(() => message.status = DeliveryStatus.synced);
-    });
-  }
-
-  void _sendText() {
-    final text = _controller.text.trim();
-    if (text.isEmpty) return;
-    _queue(Message(
-      id: const Uuid().v4(),
-      senderId: widget.me.id,
-      senderName: widget.me.fullName,
-      kind: MessageKind.text,
-      createdAt: DateTime.now(),
-      text: text,
-      status: DeliveryStatus.pending,
-    ));
-    _controller.clear();
-  }
-
-  void _retry(Message message) {
-    setState(() => message.status = DeliveryStatus.pending);
-    _simulateSend(message);
-  }
-
-  void _addAttachment(MessageKind kind) {
-    final message = Message(
-      id: const Uuid().v4(),
-      senderId: widget.me.id,
-      senderName: widget.me.fullName,
-      kind: kind,
-      createdAt: DateTime.now(),
-      status: DeliveryStatus.pending,
-      text: kind == MessageKind.voice ? 'คำถอดความ: ต้องการน้ำดื่ม' : null,
-      durationSeconds: kind == MessageKind.voice ? 8 : null,
-      lat: kind == MessageKind.location ? 13.7563 : null,
-      lon: kind == MessageKind.location ? 100.5018 : null,
-    );
-    _queue(message);
-  }
-
-  void _openAttachMenu() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppColors.surface,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        Widget item(IconData icon, String label, MessageKind kind) {
-          return ListTile(
-            minTileHeight: 56,
-            leading: Icon(icon, color: AppColors.info),
-            title: Text(label),
-            onTap: () {
-              Navigator.pop(sheetContext);
-              _addAttachment(kind);
-            },
-          );
-        }
-
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              item(Icons.image_outlined, 'รูปภาพ', MessageKind.image),
-              item(Icons.videocam_outlined, 'วิดีโอ', MessageKind.video),
-              item(Icons.mic_none_rounded, 'ข้อความเสียง', MessageKind.voice),
-              item(Icons.location_on_outlined, 'ตำแหน่ง', MessageKind.location),
-            ],
-          ),
-        );
-      },
-    );
-  }
+  bool _sending = false;
 
   @override
   void dispose() {
-    _controller.dispose();
+    _message.dispose();
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final color = switch (widget.peerKind) {
-      PeerKind.sos => AppColors.sos,
-      PeerKind.rescue => AppColors.rescue,
-      PeerKind.normal => AppColors.muted,
-    };
-    final status = switch (widget.peerKind) {
-      PeerKind.sos => '⚠ SOS',
-      PeerKind.rescue => '🛟 RESCUE',
-      PeerKind.normal => '👤 USER',
-    };
+  Future<void> _send() async {
+    final text = _message.text.trim();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Column(
+    if (text.isEmpty || _sending) return;
+
+    setState(() => _sending = true);
+
+    try {
+      await _repository.create(user: widget.me, content: text);
+
+      if (widget.me.isMember) {
+        await SyncService.instance.syncNow();
+      }
+
+      _message.clear();
+
+      if (!mounted) return;
+
+      _show(
+        widget.me.isMember
+            ? 'บันทึกข้อความลง Local DB แล้ว'
+            : 'Guest: ข้อความถูกเก็บไว้ใน Local DB',
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      _show('บันทึกข้อความไม่สำเร็จ: $e', error: true);
+    } finally {
+      if (mounted) {
+        setState(() => _sending = false);
+      }
+    }
+  }
+
+  Future<void> _openActions(LocalMessageRecord record) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Text(widget.peerName,
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
-            Text(status,
-                style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w900)),
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('แก้ไขข้อความ'),
+              onTap: () => Navigator.pop(context, 'edit'),
+            ),
+            ListTile(
+              leading: const Icon(
+                Icons.delete_outline_rounded,
+                color: AppColors.error,
+              ),
+              title: const Text('ลบข้อความ'),
+              onTap: () => Navigator.pop(context, 'delete'),
+            ),
           ],
         ),
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
-              itemCount: _messages.length,
-              itemBuilder: (_, index) {
-                final message = _messages[index];
-                return MessageBubble(
-                  message: message,
-                  onRetry: message.status == DeliveryStatus.error
-                      ? () => _retry(message)
-                      : null,
-                );
-              },
-            ),
+    );
+
+    if (action == 'edit') {
+      await _edit(record);
+    } else if (action == 'delete') {
+      await _delete(record);
+    }
+  }
+
+  Future<void> _edit(LocalMessageRecord record) async {
+    final controller = TextEditingController(text: record.content);
+
+    final text = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('แก้ไขข้อความ'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          minLines: 1,
+          maxLines: 4,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('ยกเลิก'),
           ),
-          Container(
-            width: double.infinity,
-            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: const Text(
-              '＋ แนบ: 🖼 รูป · 🎥 วิดีโอ · 🎤 เสียง · 📍 ตำแหน่ง',
-              style: TextStyle(color: AppColors.muted, fontSize: 13),
-            ),
-          ),
-          SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-              child: Row(
-                children: [
-                  IconButton(
-                    tooltip: 'แนบไฟล์หรือตำแหน่ง',
-                    onPressed: _openAttachMenu,
-                    icon: const Icon(Icons.add_circle_outline_rounded),
-                  ),
-                  Expanded(
-                    child: TextField(
-                      controller: _controller,
-                      minLines: 1,
-                      maxLines: 4,
-                      textInputAction: TextInputAction.send,
-                      onSubmitted: (_) => _sendText(),
-                      decoration: const InputDecoration(hintText: 'พิมพ์ข้อความ...'),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  IconButton.filled(
-                    tooltip: 'ส่งข้อความ',
-                    style: IconButton.styleFrom(
-                      backgroundColor: const Color(0xFF17344A),
-                      foregroundColor: AppColors.text,
-                    ),
-                    onPressed: _sendText,
-                    icon: const Icon(Icons.send_rounded),
-                  ),
-                ],
-              ),
-            ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('บันทึก'),
           ),
         ],
       ),
     );
-  }
-}
 
-class MessageBubble extends StatelessWidget {
-  const MessageBubble({super.key, required this.message, this.onRetry});
+    controller.dispose();
 
-  final Message message;
-  final VoidCallback? onRetry;
+    if (text == null || text.isEmpty) return;
 
-  @override
-  Widget build(BuildContext context) {
-    final isError = message.status == DeliveryStatus.error;
-    final bg = message.isMine
-        ? (isError ? AppColors.error.withOpacity(.18) : const Color(0xFF17344A))
-        : AppColors.surface;
-    final border = isError ? AppColors.error : AppColors.border;
+    try {
+      await _repository.updateText(record, text);
 
-    return Align(
-      alignment: message.isMine ? Alignment.centerRight : Alignment.centerLeft,
-      child: GestureDetector(
-        onTap: onRetry,
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 300),
-          margin: const EdgeInsets.only(bottom: 10),
-          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: border),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _content(),
-              if (message.isMine) ...[
-                const SizedBox(height: 6),
-                _status(),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+      if (widget.me.isMember) {
+        await SyncService.instance.syncNow();
+      }
+    } catch (e) {
+      if (!mounted) return;
 
-  Widget _content() {
-    switch (message.kind) {
-      case MessageKind.text:
-        return Text(message.text ?? '', style: const TextStyle(fontSize: 16));
-      case MessageKind.image:
-        return const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.image_outlined),
-            SizedBox(width: 7),
-            Text('รูปภาพ', style: TextStyle(fontWeight: FontWeight.w700)),
-          ],
-        );
-      case MessageKind.video:
-        return const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.videocam_outlined),
-            SizedBox(width: 7),
-            Text('วิดีโอ', style: TextStyle(fontWeight: FontWeight.w700)),
-          ],
-        );
-      case MessageKind.voice:
-        return Text('🎤 ข้อความเสียง 0:${(message.durationSeconds ?? 0).toString().padLeft(2, '0')}\n${message.text ?? ''}');
-      case MessageKind.location:
-        return const Text('📍 ตำแหน่งล่าสุด\nแตะเพื่อดูตำแหน่งที่บันทึกไว้');
+      _show('แก้ไขข้อความไม่สำเร็จ: $e', error: true);
     }
   }
 
-  Widget _status() {
-    final (icon, text, color) = switch (message.status) {
-      DeliveryStatus.pending =>
-        (Icons.schedule_rounded, 'ค้างส่ง', AppColors.pending),
-      DeliveryStatus.sent =>
-        (Icons.done_rounded, 'ส่งถึงอุปกรณ์', AppColors.success),
-      DeliveryStatus.synced =>
-        (Icons.done_all_rounded, 'ซิงก์แล้ว', AppColors.info),
-      DeliveryStatus.error =>
-        (Icons.warning_amber_rounded, 'เกิดข้อผิดพลาด · แตะเพื่อลองใหม่', AppColors.error),
-    };
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, color: color, size: 15),
-        const SizedBox(width: 4),
-        Flexible(
-          child: Text(
-            text,
-            style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w800),
-          ),
+  Future<void> _delete(LocalMessageRecord record) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('ลบข้อความ'),
+        content: const Text(
+          'ข้อความจะหายจาก Local DB และจะลบจาก Cloud เมื่อซิงก์สำเร็จ',
         ),
-      ],
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('ยกเลิก'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('ลบ'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await _repository.delete(record);
+
+      if (widget.me.isMember) {
+        await SyncService.instance.syncNow();
+      }
+    } catch (e) {
+      if (!mounted) return;
+
+      _show('ลบข้อความไม่สำเร็จ: $e', error: true);
+    }
+  }
+
+  void _show(String text, {bool error = false}) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          backgroundColor: error ? AppColors.error : null,
+          content: Text(text),
+        ),
+      );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 12, 8),
+            child: Row(
+              children: [
+                const Icon(Icons.chat_bubble_outline_rounded),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'แชท',
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      Text(
+                        'Week 3: Local DB → Supabase Sync',
+                        style: TextStyle(color: AppColors.muted, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
+                ValueListenableBuilder<SyncSnapshot>(
+                  valueListenable: SyncService.instance.status,
+                  builder: (context, value, _) {
+                    return IconButton(
+                      tooltip: 'Retry Sync (${value.pendingCount})',
+                      onPressed: value.isBusy
+                          ? null
+                          : SyncService.instance.retryAll,
+                      icon: value.isBusy
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.sync_rounded),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: AppColors.info.withValues(alpha: .08),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.info.withValues(alpha: .22)),
+            ),
+            child: Text(
+              widget.me.isMember
+                  ? 'ข้อความจะปรากฏจาก Local DB ทันที แล้วจึง Sync Cloud'
+                  : 'Guest mode: ข้อความถูกเก็บใน Local DB เท่านั้น',
+              style: const TextStyle(color: AppColors.muted, fontSize: 12),
+            ),
+          ),
+          Expanded(
+            child: StreamBuilder<List<LocalMessageRecord>>(
+              stream: _repository.watchForUser(widget.me.id),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return const Center(child: Text('อ่าน Local DB ไม่สำเร็จ'));
+                }
+
+                final messages = snapshot.data ?? const [];
+
+                if (messages.isEmpty) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(28),
+                      child: Text(
+                        'ยังไม่มีข้อความ\n'
+                        'ลองส่งข้อความ แล้ว Refresh หน้าเว็บหรือเปิดแอปใหม่ '
+                        'ข้อความต้องยังอยู่ เพราะอ่านจาก Local DB',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: AppColors.muted, height: 1.5),
+                      ),
+                    ),
+                  );
+                }
+
+                return ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: messages.length,
+                  itemBuilder: (context, index) {
+                    final record = messages[index];
+
+                    return Align(
+                      alignment: Alignment.centerRight,
+                      child: GestureDetector(
+                        onLongPress: () => _openActions(record),
+                        child: Container(
+                          constraints: const BoxConstraints(maxWidth: 300),
+                          margin: const EdgeInsets.only(bottom: 9),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.info.withValues(alpha: .16),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: AppColors.info.withValues(alpha: .30),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(record.content),
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (record.syncState == 'error')
+                                    InkWell(
+                                      onTap: () async {
+                                        await _repository.retry(record.id);
+                                        await SyncService.instance.retryAll();
+                                      },
+                                      child: const Padding(
+                                        padding: EdgeInsets.only(right: 6),
+                                        child: Icon(
+                                          Icons.refresh_rounded,
+                                          size: 15,
+                                          color: AppColors.error,
+                                        ),
+                                      ),
+                                    ),
+                                  Text(
+                                    record.syncState,
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: record.syncState == 'error'
+                                          ? AppColors.error
+                                          : AppColors.muted,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 14),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _message,
+                    onSubmitted: (_) => _send(),
+                    decoration: const InputDecoration(
+                      hintText: 'พิมพ์ข้อความ...',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  onPressed: _sending ? null : _send,
+                  icon: _sending
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.send_rounded),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

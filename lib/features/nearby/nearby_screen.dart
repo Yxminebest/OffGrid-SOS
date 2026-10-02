@@ -1,128 +1,132 @@
 import 'package:flutter/material.dart';
-import '../../app/theme.dart';
-import '../../models/local_identity.dart';
-import '../../widgets/status_badge.dart';
-import '../chat/chat_screen.dart';
 
-class NearbyPeer {
-  const NearbyPeer({
-    required this.name,
-    required this.kind,
-    required this.meters,
-    required this.description,
+import '../../app/theme.dart';
+import '../../models/user.dart';
+
+class NearbyScreen extends StatelessWidget {
+  const NearbyScreen({
+    super.key,
+    required this.me,
   });
 
-  final String name;
-  final PeerKind kind;
-  final int meters;
-  final String description;
-}
-
-const demoPeers = <NearbyPeer>[
-  NearbyPeer(
-    name: 'Somchai',
-    kind: PeerKind.sos,
-    meters: 25,
-    description: 'ผู้ขอความช่วยเหลือ',
-  ),
-  NearbyPeer(
-    name: 'Rescue Team',
-    kind: PeerKind.rescue,
-    meters: 80,
-    description: 'RESCUE MODE ACTIVE',
-  ),
-  NearbyPeer(
-    name: 'ผู้ใช้ใกล้เคียง',
-    kind: PeerKind.normal,
-    meters: 120,
-    description: 'ผู้ใช้ทั่วไป · พร้อมช่วย Relay',
-  ),
-];
-
-class NearbyScreen extends StatefulWidget {
-  const NearbyScreen({super.key, required this.me});
-
-  final LocalIdentity me;
-
-  @override
-  State<NearbyScreen> createState() => _NearbyScreenState();
-}
-
-class _NearbyScreenState extends State<NearbyScreen> {
-  bool _searching = true;
-
-  void _openChat(NearbyPeer peer) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ChatScreen(
-          me: widget.me,
-          peerName: peer.name,
-          peerKind: peer.kind,
-        ),
-      ),
-    );
-  }
+  final AppUser me;
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('อุปกรณ์ใกล้ฉัน')),
-      body: RefreshIndicator(
-        onRefresh: () async {
-          setState(() => _searching = true);
-          await Future<void>.delayed(const Duration(milliseconds: 700));
-          if (mounted) setState(() => _searching = false);
-        },
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 110),
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    _searching ? Icons.radar_rounded : Icons.check_circle_outline,
-                    color: _searching ? AppColors.info : AppColors.success,
+    return SafeArea(
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 30),
+        children: [
+          const Text(
+            'อุปกรณ์ใกล้เคียง',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Nearby / Relay จะค้นหาอุปกรณ์และส่งต่อข้อมูลแบบ Offline Mesh',
+            style: TextStyle(
+              color: AppColors.muted,
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: 18),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: const Row(
+              children: [
+                Icon(
+                  Icons.radar_rounded,
+                  color: AppColors.info,
+                  size: 30,
+                ),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'กำลังรอเชื่อม MultipeerConnectivity\n'
+                    'Week 3–4: peer discovery + message UUID + TTL',
                   ),
-                  const SizedBox(width: 9),
-                  Text(
-                    _searching ? 'กำลังค้นหา...' : 'ค้นหาเสร็จแล้ว',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          const _PeerPreview(
+            icon: Icons.warning_amber_rounded,
+            title: 'SOS',
+            subtitle: 'ตัวอย่างอุปกรณ์สถานะฉุกเฉิน • 25 ม.',
+          ),
+          const SizedBox(height: 10),
+          const _PeerPreview(
+            icon: Icons.health_and_safety_outlined,
+            title: 'RESCUE',
+            subtitle: 'ตัวอย่างหน่วยกู้ภัยที่ตรวจสอบแล้ว • 80 ม.',
+          ),
+          const SizedBox(height: 10),
+          const _PeerPreview(
+            icon: Icons.person_outline_rounded,
+            title: 'USER',
+            subtitle: 'ตัวอย่างผู้ใช้ทั่วไป • 120 ม.',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PeerPreview extends StatelessWidget {
+  const _PeerPreview({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: AppColors.info),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w900,
                   ),
-                ],
-              ),
+                ),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: AppColors.muted,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 14),
-            for (final peer in demoPeers) ...[
-              StatusBadge(
-                kind: peer.kind,
-                name: peer.name,
-                detail: '${peer.meters} ม.',
-                description: peer.description,
-                actionLabel: peer.kind == PeerKind.sos ? 'เปิดการสนทนา' : null,
-                onTap: () => _openChat(peer),
-              ),
-              const SizedBox(height: 12),
-            ],
-            const SizedBox(height: 8),
-            const Text(
-              'ทุกสถานะใช้ icon + text + สี และแตะอุปกรณ์เพื่อเปิด Chat ได้',
-              style: TextStyle(color: AppColors.muted, fontSize: 13),
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              'ข้อมูลหน้านี้เป็น Mock Data สำหรับ Week 2; Week 3 จะเชื่อม MultipeerConnectivity จริง',
-              style: TextStyle(color: AppColors.muted, fontSize: 12),
-            ),
-          ],
-        ),
+          ),
+          const Icon(Icons.chevron_right_rounded),
+        ],
       ),
     );
   }

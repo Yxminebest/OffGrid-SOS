@@ -7,9 +7,19 @@ environment:
   sdk: ^3.12.2
 
 dependencies:
+  connectivity_plus: ^7.3.2
+  file_picker: ^13.1.0
   flutter:
     sdk: flutter
   flutter_secure_storage: ^11.2.0
+  geolocator: ^14.0.1
+  image_picker: ^1.2.3
+  path: ^1.9.1
+  path_provider: ^2.1.6
+  sembast: ^3.8.11
+  sembast_web: ^2.4.6
+  supabase_flutter: ^2.18.0
+  url_launcher: ^6.3.2
   uuid: ^4.6.0
 
 dev_dependencies:

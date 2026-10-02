@@ -1,0 +1,39 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function verifiedMember() {
+      return signedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isParticipant(conversationId) {
+      return verifiedMember()
+        && request.auth.uid in firestore.get(
+          /databases/(default)/documents/conversations/$(conversationId)
+        ).data.participantIds;
+    }
+
+    match /profile_images/{uid}/{fileName} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if signedIn() && request.auth.uid == uid;
+    }
+
+    // Prepared for Week 4 media chat. This does not affect Week 3 text chat.
+    match /chat_media/{conversationId}/{messageId}/{fileName} {
+      allow read: if isParticipant(conversationId);
+      allow create: if isParticipant(conversationId)
+        && request.resource.size < 25 * 1024 * 1024
+        && request.resource.contentType.matches('(image|video|audio)/.*');
+      allow delete: if isParticipant(conversationId);
+    }
+  }
+}
