@@ -3,10 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../app/theme.dart';
+import '../../data/models/local_chat_conversation.dart';
 import '../../models/user.dart';
+import '../../services/chat_service.dart';
 import '../../services/sync_service.dart';
 import '../auth/rescue_verification_screen.dart';
 import '../chat/chat_screen.dart';
+import '../chat/conversation_screen.dart';
 import '../nearby/nearby_screen.dart';
 import '../profile/profile_screen.dart';
 import '../rescue/rescue_screen.dart';
@@ -24,17 +27,137 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
+  int _unreadTotal = 0;
+  bool _inboxPrimed = false;
+  Map<String, int> _unreadByConversation = <String, int>{};
+  StreamSubscription<List<LocalChatConversation>>? _inboxSubscription;
 
   @override
   void initState() {
     super.initState();
     unawaited(SyncService.instance.start());
+
+    if (widget.me.isMember) {
+      _inboxSubscription = ChatService.instance
+          .watchInbox(widget.me.id)
+          .listen(_handleInbox, onError: (_) {});
+    }
   }
 
   @override
   void dispose() {
+    _inboxSubscription?.cancel();
     unawaited(SyncService.instance.stop());
     super.dispose();
+  }
+
+  void _handleInbox(List<LocalChatConversation> conversations) {
+    final nextUnread = conversations.fold<int>(
+      0,
+      (sum, item) => sum + item.unreadCount,
+    );
+
+    LocalChatConversation? newestUnread;
+    if (_inboxPrimed) {
+      for (final conversation in conversations) {
+        final before = _unreadByConversation[conversation.id] ?? 0;
+        if (conversation.unreadCount <= before) continue;
+
+        if (newestUnread == null) {
+          newestUnread = conversation;
+          continue;
+        }
+
+        final currentTime =
+            conversation.lastMessageAt ?? conversation.updatedAt;
+        final newestTime = newestUnread.lastMessageAt ?? newestUnread.updatedAt;
+        if (currentTime.isAfter(newestTime)) {
+          newestUnread = conversation;
+        }
+      }
+    }
+
+    _unreadByConversation = <String, int>{
+      for (final conversation in conversations)
+        conversation.id: conversation.unreadCount,
+    };
+    _inboxPrimed = true;
+
+    if (mounted && nextUnread != _unreadTotal) {
+      setState(() => _unreadTotal = nextUnread);
+    } else {
+      _unreadTotal = nextUnread;
+    }
+
+    if (newestUnread != null && _index != 2) {
+      final conversation = newestUnread;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _index == 2) return;
+        final preview = conversation.lastMessage?.trim();
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 5),
+              content: Text(
+                preview == null || preview.isEmpty
+                    ? 'ข้อความใหม่จาก ${conversation.displayName}'
+                    : '${conversation.displayName}: $preview',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              action: SnackBarAction(
+                label: 'เปิดแชท',
+                onPressed: () {
+                  if (!mounted) return;
+
+                  setState(() => _index = 2);
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => ConversationScreen(
+                        me: widget.me,
+                        conversation: conversation,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          );
+      });
+    }
+  }
+
+  Widget _chatNavIcon(IconData icon) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Icon(icon),
+        if (_unreadTotal > 0)
+          Positioned(
+            right: -10,
+            top: -8,
+            child: Container(
+              constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              decoration: const BoxDecoration(
+                color: AppColors.error,
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                _unreadTotal > 99 ? '99+' : '$_unreadTotal',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
   }
 
   Future<void> _openSos() async {
@@ -96,6 +219,7 @@ class _HomeShellState extends State<HomeShell> {
         onRescue: _openRescue,
         onNearby: () => setState(() => _index = 1),
         onChat: () => setState(() => _index = 2),
+        unreadCount: _unreadTotal,
       ),
       NearbyScreen(me: widget.me),
       ChatScreen(me: widget.me),
@@ -109,23 +233,23 @@ class _HomeShellState extends State<HomeShell> {
         onDestinationSelected: (value) {
           setState(() => _index = value);
         },
-        destinations: const [
-          NavigationDestination(
+        destinations: [
+          const NavigationDestination(
             icon: Icon(Icons.home_outlined),
             selectedIcon: Icon(Icons.home_rounded),
             label: 'หน้าหลัก',
           ),
-          NavigationDestination(
+          const NavigationDestination(
             icon: Icon(Icons.radar_outlined),
             selectedIcon: Icon(Icons.radar_rounded),
             label: 'ใกล้เคียง',
           ),
           NavigationDestination(
-            icon: Icon(Icons.chat_bubble_outline_rounded),
-            selectedIcon: Icon(Icons.chat_bubble_rounded),
+            icon: _chatNavIcon(Icons.chat_bubble_outline_rounded),
+            selectedIcon: _chatNavIcon(Icons.chat_bubble_rounded),
             label: 'แชท',
           ),
-          NavigationDestination(
+          const NavigationDestination(
             icon: Icon(Icons.person_outline_rounded),
             selectedIcon: Icon(Icons.person_rounded),
             label: 'โปรไฟล์',
@@ -143,6 +267,7 @@ class _HomeDashboard extends StatelessWidget {
     required this.onRescue,
     required this.onNearby,
     required this.onChat,
+    required this.unreadCount,
   });
 
   final AppUser me;
@@ -150,6 +275,7 @@ class _HomeDashboard extends StatelessWidget {
   final VoidCallback onRescue;
   final VoidCallback onNearby;
   final VoidCallback onChat;
+  final int unreadCount;
 
   @override
   Widget build(BuildContext context) {
@@ -293,7 +419,9 @@ class _HomeDashboard extends StatelessWidget {
           _FeatureCard(
             icon: Icons.chat_bubble_outline_rounded,
             title: 'Chat',
-            subtitle: 'Text CRUD • Local DB → Supabase',
+            subtitle: unreadCount > 0
+                ? 'มีข้อความยังไม่ได้อ่าน $unreadCount • แตะเพื่อเปิดแชท'
+                : '1:1 Realtime • Local-first • ไฟล์/ตำแหน่ง',
             accent: AppColors.info,
             onTap: onChat,
           ),

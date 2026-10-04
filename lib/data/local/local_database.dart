@@ -14,6 +14,9 @@ class LocalDatabase {
   final StoreRef<String, Map<String, Object?>> messageStore =
       stringMapStoreFactory.store('local_messages');
 
+  final StoreRef<String, Map<String, Object?>> conversationStore =
+      stringMapStoreFactory.store('local_conversations');
+
   final StoreRef<int, Map<String, Object?>> syncQueueStore = intMapStoreFactory
       .store('sync_queue');
 
@@ -59,6 +62,7 @@ class LocalDatabase {
     await db.transaction((txn) async {
       await sosStore.drop(txn);
       await messageStore.drop(txn);
+      await conversationStore.drop(txn);
       await syncQueueStore.drop(txn);
     });
   }

@@ -43,3 +43,16 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Local backups / generated archives
+*.bak
+backups/
+*.zip
+
+# Temporary patch scripts
+apply_inline_video*.ps1
+
+# Environment / secrets
+.env
+.env.*
+!.env.example

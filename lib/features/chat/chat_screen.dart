@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../app/theme.dart';
-import '../../data/models/local_message_record.dart';
-import '../../data/repositories/message_repository.dart';
+import '../../data/models/local_chat_conversation.dart';
 import '../../models/user.dart';
+import '../../services/chat_service.dart';
 import '../../services/sync_service.dart';
+import 'conversation_screen.dart';
+import 'new_chat_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key, required this.me});
@@ -15,188 +19,122 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
+enum _InboxFilter { all, unread }
+
 class _ChatScreenState extends State<ChatScreen> {
-  final TextEditingController _message = TextEditingController();
+  StreamSubscription<List<Map<String, dynamic>>>? _conversationSignal;
+  bool _refreshing = false;
+  String _filter = '';
+  _InboxFilter _inboxFilter = _InboxFilter.all;
 
-  final MessageRepository _repository = MessageRepository();
-
-  bool _sending = false;
+  @override
+  void initState() {
+    super.initState();
+    if (widget.me.isMember) {
+      unawaited(_refresh());
+      _conversationSignal = ChatService.instance
+          .conversationSignalStream()
+          .listen((_) => unawaited(_refresh()), onError: (_) {});
+    }
+  }
 
   @override
   void dispose() {
-    _message.dispose();
+    _conversationSignal?.cancel();
     super.dispose();
   }
 
-  Future<void> _send() async {
-    final text = _message.text.trim();
-
-    if (text.isEmpty || _sending) return;
-
-    setState(() => _sending = true);
-
+  Future<void> _refresh() async {
+    if (!widget.me.isMember || _refreshing) return;
+    setState(() => _refreshing = true);
     try {
-      await _repository.create(user: widget.me, content: text);
-
-      if (widget.me.isMember) {
-        await SyncService.instance.syncNow();
-      }
-
-      _message.clear();
-
-      if (!mounted) return;
-
-      _show(
-        widget.me.isMember
-            ? 'บันทึกข้อความลง Local DB แล้ว'
-            : 'Guest: ข้อความถูกเก็บไว้ใน Local DB',
-      );
+      await SyncService.instance.syncNow();
+      await ChatService.instance.refreshInbox(widget.me);
     } catch (e) {
       if (!mounted) return;
-
-      _show('บันทึกข้อความไม่สำเร็จ: $e', error: true);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('รีเฟรชแชทไม่สำเร็จ: $e')));
     } finally {
-      if (mounted) {
-        setState(() => _sending = false);
-      }
+      if (mounted) setState(() => _refreshing = false);
     }
   }
 
-  Future<void> _openActions(LocalMessageRecord record) async {
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: AppColors.surface,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.edit_outlined),
-              title: const Text('แก้ไขข้อความ'),
-              onTap: () => Navigator.pop(context, 'edit'),
-            ),
-            ListTile(
-              leading: const Icon(
-                Icons.delete_outline_rounded,
-                color: AppColors.error,
-              ),
-              title: const Text('ลบข้อความ'),
-              onTap: () => Navigator.pop(context, 'delete'),
-            ),
-          ],
-        ),
+  Future<void> _newChat() async {
+    if (!widget.me.isMember) {
+      _notice('แชทกับผู้ใช้อื่นต้องเข้าสู่ระบบด้วยบัญชีสมาชิก');
+      return;
+    }
+
+    final conversation = await Navigator.of(context)
+        .push<LocalChatConversation>(
+          MaterialPageRoute(builder: (_) => NewChatScreen(me: widget.me)),
+        );
+    if (!mounted || conversation == null) return;
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            ConversationScreen(me: widget.me, conversation: conversation),
       ),
     );
-
-    if (action == 'edit') {
-      await _edit(record);
-    } else if (action == 'delete') {
-      await _delete(record);
-    }
+    if (mounted) unawaited(_refresh());
   }
 
-  Future<void> _edit(LocalMessageRecord record) async {
-    final controller = TextEditingController(text: record.content);
-
-    final text = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('แก้ไขข้อความ'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          minLines: 1,
-          maxLines: 4,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('ยกเลิก'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('บันทึก'),
-          ),
-        ],
+  Future<void> _open(LocalChatConversation conversation) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            ConversationScreen(me: widget.me, conversation: conversation),
       ),
     );
-
-    controller.dispose();
-
-    if (text == null || text.isEmpty) return;
-
-    try {
-      await _repository.updateText(record, text);
-
-      if (widget.me.isMember) {
-        await SyncService.instance.syncNow();
-      }
-    } catch (e) {
-      if (!mounted) return;
-
-      _show('แก้ไขข้อความไม่สำเร็จ: $e', error: true);
-    }
+    if (mounted) unawaited(_refresh());
   }
 
-  Future<void> _delete(LocalMessageRecord record) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('ลบข้อความ'),
-        content: const Text(
-          'ข้อความจะหายจาก Local DB และจะลบจาก Cloud เมื่อซิงก์สำเร็จ',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('ยกเลิก'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('ลบ'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
-    try {
-      await _repository.delete(record);
-
-      if (widget.me.isMember) {
-        await SyncService.instance.syncNow();
-      }
-    } catch (e) {
-      if (!mounted) return;
-
-      _show('ลบข้อความไม่สำเร็จ: $e', error: true);
-    }
-  }
-
-  void _show(String text, {bool error = false}) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          backgroundColor: error ? AppColors.error : null,
-          content: Text(text),
-        ),
-      );
+  void _notice(String text) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.me.isMember) {
+      return SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.chat_bubble_outline_rounded,
+                  size: 52,
+                  color: AppColors.info,
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'แชทระหว่างผู้ใช้',
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Guest ใช้งาน Local SOS ได้ แต่การส่งข้อความถึงผู้ใช้อื่นต้องเข้าสู่ระบบเพื่อยืนยันตัวตนและรักษาความปลอดภัยของห้องสนทนา',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppColors.muted, height: 1.5),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return SafeArea(
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 12, 8),
+            padding: const EdgeInsets.fromLTRB(18, 18, 10, 8),
             child: Row(
               children: [
-                const Icon(Icons.chat_bubble_outline_rounded),
-                const SizedBox(width: 10),
                 const Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -204,179 +142,273 @@ class _ChatScreenState extends State<ChatScreen> {
                       Text(
                         'แชท',
                         style: TextStyle(
-                          fontSize: 24,
+                          fontSize: 27,
                           fontWeight: FontWeight.w900,
                         ),
                       ),
                       Text(
-                        'Week 3: Local DB → Supabase Sync',
+                        'ข้อความส่วนตัว • Local-first • Realtime',
                         style: TextStyle(color: AppColors.muted, fontSize: 11),
                       ),
                     ],
                   ),
                 ),
-                ValueListenableBuilder<SyncSnapshot>(
-                  valueListenable: SyncService.instance.status,
-                  builder: (context, value, _) {
-                    return IconButton(
-                      tooltip: 'Retry Sync (${value.pendingCount})',
-                      onPressed: value.isBusy
-                          ? null
-                          : SyncService.instance.retryAll,
-                      icon: value.isBusy
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.sync_rounded),
-                    );
-                  },
+                IconButton(
+                  tooltip: 'เริ่มแชทใหม่',
+                  onPressed: _newChat,
+                  icon: const Icon(Icons.edit_square),
+                ),
+                IconButton(
+                  tooltip: 'รีเฟรช',
+                  onPressed: _refreshing ? null : _refresh,
+                  icon: _refreshing
+                      ? const SizedBox(
+                          width: 19,
+                          height: 19,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.sync_rounded),
                 ),
               ],
             ),
           ),
-          Container(
-            width: double.infinity,
-            margin: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: AppColors.info.withValues(alpha: .08),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.info.withValues(alpha: .22)),
-            ),
-            child: Text(
-              widget.me.isMember
-                  ? 'ข้อความจะปรากฏจาก Local DB ทันที แล้วจึง Sync Cloud'
-                  : 'Guest mode: ข้อความถูกเก็บใน Local DB เท่านั้น',
-              style: const TextStyle(color: AppColors.muted, fontSize: 12),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
+            child: TextField(
+              onChanged: (value) =>
+                  setState(() => _filter = value.trim().toLowerCase()),
+              decoration: const InputDecoration(
+                hintText: 'ค้นหาชื่อหรือข้อความล่าสุด',
+                prefixIcon: Icon(Icons.search_rounded),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+              ),
             ),
           ),
           Expanded(
-            child: StreamBuilder<List<LocalMessageRecord>>(
-              stream: _repository.watchForUser(widget.me.id),
+            child: StreamBuilder<List<LocalChatConversation>>(
+              stream: ChatService.instance.watchInbox(widget.me.id),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
-                  return const Center(child: Text('อ่าน Local DB ไม่สำเร็จ'));
-                }
-
-                final messages = snapshot.data ?? const [];
-
-                if (messages.isEmpty) {
                   return const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(28),
-                      child: Text(
-                        'ยังไม่มีข้อความ\n'
-                        'ลองส่งข้อความ แล้ว Refresh หน้าเว็บหรือเปิดแอปใหม่ '
-                        'ข้อความต้องยังอยู่ เพราะอ่านจาก Local DB',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: AppColors.muted, height: 1.5),
-                      ),
-                    ),
+                    child: Text('อ่านรายการแชทจาก Local DB ไม่สำเร็จ'),
                   );
                 }
 
-                return ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: messages.length,
-                  itemBuilder: (context, index) {
-                    final record = messages[index];
+                final all = snapshot.data ?? const [];
+                final unreadTotal = all.fold<int>(
+                  0,
+                  (sum, item) => sum + item.unreadCount,
+                );
 
-                    return Align(
-                      alignment: Alignment.centerRight,
-                      child: GestureDetector(
-                        onLongPress: () => _openActions(record),
-                        child: Container(
-                          constraints: const BoxConstraints(maxWidth: 300),
-                          margin: const EdgeInsets.only(bottom: 9),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 10,
+                final searched = all.where(
+                  (item) =>
+                      _filter.isEmpty ||
+                      item.displayName.toLowerCase().contains(_filter) ||
+                      (item.lastMessage ?? '').toLowerCase().contains(_filter),
+                );
+
+                final list = searched.where((item) {
+                  return switch (_inboxFilter) {
+                    _InboxFilter.all => true,
+                    _InboxFilter.unread => item.unreadCount > 0,
+                  };
+                }).toList();
+
+                final filtering =
+                    _filter.isNotEmpty || _inboxFilter != _InboxFilter.all;
+
+                return Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+                      child: Row(
+                        children: [
+                          ChoiceChip(
+                            label: Text('ทั้งหมด (${all.length})'),
+                            selected: _inboxFilter == _InboxFilter.all,
+                            onSelected: (_) {
+                              setState(() => _inboxFilter = _InboxFilter.all);
+                            },
                           ),
-                          decoration: BoxDecoration(
-                            color: AppColors.info.withValues(alpha: .16),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: AppColors.info.withValues(alpha: .30),
-                            ),
+                          const SizedBox(width: 8),
+                          ChoiceChip(
+                            label: Text('ยังไม่ได้อ่าน ($unreadTotal)'),
+                            selected: _inboxFilter == _InboxFilter.unread,
+                            onSelected: (_) {
+                              setState(
+                                () => _inboxFilter = _InboxFilter.unread,
+                              );
+                            },
                           ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Align(
-                                alignment: Alignment.centerLeft,
-                                child: Text(record.content),
-                              ),
-                              const SizedBox(height: 4),
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (record.syncState == 'error')
-                                    InkWell(
-                                      onTap: () async {
-                                        await _repository.retry(record.id);
-                                        await SyncService.instance.retryAll();
-                                      },
-                                      child: const Padding(
-                                        padding: EdgeInsets.only(right: 6),
-                                        child: Icon(
-                                          Icons.refresh_rounded,
-                                          size: 15,
-                                          color: AppColors.error,
-                                        ),
-                                      ),
-                                    ),
-                                  Text(
-                                    record.syncState,
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      color: record.syncState == 'error'
-                                          ? AppColors.error
-                                          : AppColors.muted,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
+                        ],
                       ),
-                    );
-                  },
+                    ),
+                    Expanded(
+                      child: list.isEmpty
+                          ? _EmptyInbox(
+                              onNewChat: _newChat,
+                              filtering: filtering,
+                            )
+                          : RefreshIndicator(
+                              onRefresh: _refresh,
+                              child: ListView.separated(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                padding: const EdgeInsets.fromLTRB(8, 0, 8, 24),
+                                itemCount: list.length,
+                                separatorBuilder: (context, index) =>
+                                    const Divider(height: 1),
+                                itemBuilder: (context, index) {
+                                  final conversation = list[index];
+                                  return _ConversationTile(
+                                    conversation: conversation,
+                                    onTap: () => _open(conversation),
+                                  );
+                                },
+                              ),
+                            ),
+                    ),
+                  ],
                 );
               },
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 14),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _message,
-                    onSubmitted: (_) => _send(),
-                    decoration: const InputDecoration(
-                      hintText: 'พิมพ์ข้อความ...',
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton.filled(
-                  onPressed: _sending ? null : _send,
-                  icon: _sending
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.send_rounded),
-                ),
-              ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ConversationTile extends StatelessWidget {
+  const _ConversationTile({required this.conversation, required this.onTap});
+
+  final LocalChatConversation conversation;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final initial = conversation.displayName.trim().isEmpty
+        ? '?'
+        : conversation.displayName.trim().characters.first.toUpperCase();
+    return ListTile(
+      onTap: onTap,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      leading: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          CircleAvatar(
+            radius: 25,
+            backgroundColor: AppColors.surfaceSoft,
+            child: Text(
+              initial,
+              style: const TextStyle(fontWeight: FontWeight.w900),
             ),
           ),
+          if (conversation.unreadCount > 0)
+            Positioned(
+              right: -3,
+              top: -3,
+              child: Container(
+                constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
+                padding: const EdgeInsets.symmetric(horizontal: 5),
+                decoration: const BoxDecoration(
+                  color: AppColors.error,
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  conversation.unreadCount > 99
+                      ? '99+'
+                      : '${conversation.unreadCount}',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ),
         ],
+      ),
+      title: Text(
+        conversation.displayName,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontWeight: conversation.unreadCount > 0
+              ? FontWeight.w900
+              : FontWeight.w700,
+        ),
+      ),
+      subtitle: Text(
+        conversation.lastMessage ?? 'เริ่มการสนทนา',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: conversation.unreadCount > 0
+              ? AppColors.text
+              : AppColors.muted,
+          fontWeight: conversation.unreadCount > 0
+              ? FontWeight.w700
+              : FontWeight.w400,
+        ),
+      ),
+      trailing: conversation.lastMessageAt == null
+          ? null
+          : Text(
+              _time(conversation.lastMessageAt!),
+              style: const TextStyle(color: AppColors.muted, fontSize: 10),
+            ),
+    );
+  }
+
+  String _time(DateTime value) {
+    final now = DateTime.now();
+    if (now.year == value.year &&
+        now.month == value.month &&
+        now.day == value.day) {
+      return '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
+    }
+    return '${value.day}/${value.month}';
+  }
+}
+
+class _EmptyInbox extends StatelessWidget {
+  const _EmptyInbox({required this.onNewChat, required this.filtering});
+
+  final VoidCallback onNewChat;
+  final bool filtering;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.forum_outlined, size: 52, color: AppColors.info),
+            const SizedBox(height: 14),
+            Text(
+              filtering ? 'ไม่พบแชทที่ค้นหา' : 'ยังไม่มีห้องสนทนา',
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+            ),
+            if (!filtering) ...[
+              const SizedBox(height: 8),
+              const Text(
+                'เลือกผู้ใช้เพื่อเริ่มแชทแบบ 1 ต่อ 1',
+                style: TextStyle(color: AppColors.muted),
+              ),
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: onNewChat,
+                icon: const Icon(Icons.add_comment_outlined),
+                label: const Text('เริ่มแชทใหม่'),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

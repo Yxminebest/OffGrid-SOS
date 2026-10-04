@@ -219,27 +219,53 @@ class SyncService {
       throw StateError('Message sender does not match current user.');
     }
 
-    await _ensureDemoConversation(conversationId: record.conversationId);
-
     if (job.operation == 'delete' || record.isDeleted) {
       await _supabase.from('messages').delete().eq('id', record.id);
-
+      final mediaPath = record.mediaPath;
+      if (mediaPath != null && mediaPath.isNotEmpty) {
+        try {
+          await _supabase.storage.from('chat-media').remove([mediaPath]);
+        } catch (_) {
+          // Message deletion is authoritative; orphan cleanup can retry later.
+        }
+      }
       await _messages.markSynced(record.id);
       return;
     }
 
+    var uploadRecord = record;
+    final pendingBytes = record.mediaBytes;
+    if (pendingBytes != null &&
+        pendingBytes.isNotEmpty &&
+        record.mediaPath == null) {
+      final safeName = (record.mediaName ?? 'attachment').replaceAll(
+        RegExp(r'[^a-zA-Z0-9._-]'),
+        '_',
+      );
+      final path =
+          '$currentUserId/${record.conversationId}/${record.id}/$safeName';
+
+      await _supabase.storage
+          .from('chat-media')
+          .uploadBinary(
+            path,
+            Uint8List.fromList(pendingBytes),
+            fileOptions: FileOptions(
+              upsert: true,
+              contentType: record.mediaMime ?? 'application/octet-stream',
+              cacheControl: '3600',
+            ),
+          );
+
+      await _messages.attachUploadedMedia(id: record.id, mediaPath: path);
+      uploadRecord = (await _messages.findById(record.id)) ?? record;
+    }
+
     await _supabase
         .from('messages')
-        .upsert(record.toSupabaseMap(), onConflict: 'id');
+        .upsert(uploadRecord.toSupabaseMap(), onConflict: 'id');
 
     await _messages.markSynced(record.id);
-  }
-
-  Future<void> _ensureDemoConversation({required String conversationId}) async {
-    await _supabase.rpc(
-      'ensure_week3_conversation',
-      params: <String, dynamic>{'p_conversation_id': conversationId},
-    );
   }
 
   Future<void> _markEntityError(SyncJob job, Object error) async {

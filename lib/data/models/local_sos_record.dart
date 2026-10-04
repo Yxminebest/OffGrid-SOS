@@ -91,6 +91,7 @@ class LocalSosRecord {
     'longitude': longitude,
     'accuracy': accuracy,
     'is_active': isActive,
+    'ended_at': endedAt?.toUtc().toIso8601String(),
     'created_at': createdAt.toUtc().toIso8601String(),
     'updated_at': updatedAt.toUtc().toIso8601String(),
   };
