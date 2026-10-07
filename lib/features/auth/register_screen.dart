@@ -6,19 +6,16 @@ import 'package:image_picker/image_picker.dart';
 import '../../app/theme.dart';
 import '../../models/user.dart';
 import '../../services/auth_service.dart';
+import '../../widgets/password_strength_indicator.dart';
 import 'verify_email_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
-  const RegisterScreen({
-    super.key,
-    required this.onDone,
-  });
+  const RegisterScreen({super.key, required this.onDone});
 
   final void Function(AppUser identity) onDone;
 
   @override
-  State<RegisterScreen> createState() =>
-      _RegisterScreenState();
+  State<RegisterScreen> createState() => _RegisterScreenState();
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
@@ -60,20 +57,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     final bytes = await image.readAsBytes();
     final name = image.name;
-    final extension =
-        name.contains('.') ? name.split('.').last : 'jpg';
+    final extension = name.contains('.') ? name.split('.').last : 'jpg';
 
     if (!mounted) return;
 
     setState(() {
       _avatarBytes = bytes;
       _avatarExtension = extension.toLowerCase();
-      _avatarMime = image.mimeType ??
+      _avatarMime =
+          image.mimeType ??
           (_avatarExtension == 'png'
               ? 'image/png'
               : _avatarExtension == 'webp'
-                  ? 'image/webp'
-                  : 'image/jpeg');
+              ? 'image/webp'
+              : 'image/jpeg');
     });
   }
 
@@ -86,9 +83,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
 
     if (!_accepted) {
-      _showError(
-        'กรุณายอมรับเงื่อนไขการใช้งานและนโยบายความเป็นส่วนตัว',
-      );
+      _showError('กรุณายอมรับเงื่อนไขการใช้งานและนโยบายความเป็นส่วนตัว');
       return;
     }
 
@@ -133,10 +128,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
-        SnackBar(
-          backgroundColor: AppColors.error,
-          content: Text(message),
-        ),
+        SnackBar(backgroundColor: AppColors.error, content: Text(message)),
       );
   }
 
@@ -151,25 +143,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
       ),
       body: SafeArea(
         child: ListView(
-          keyboardDismissBehavior:
-              ScrollViewKeyboardDismissBehavior.onDrag,
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
           children: [
             const Text(
               'สร้างบัญชี offgrid-sos',
-              style: TextStyle(
-                fontSize: 26,
-                fontWeight: FontWeight.w900,
-              ),
+              style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 6),
             const Text(
               'ระบบใช้ชื่อจริงและนามสกุลจริงในการแสดงตัวตน '
               'เพื่อช่วยลดความสับสนในการสื่อสารฉุกเฉิน',
-              style: TextStyle(
-                color: AppColors.muted,
-                height: 1.5,
-              ),
+              style: TextStyle(color: AppColors.muted, height: 1.5),
             ),
             const SizedBox(height: 22),
             Center(
@@ -202,10 +187,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
                     const Text(
                       'ไม่บังคับ • อัปโหลดหลังยืนยันอีเมล',
-                      style: TextStyle(
-                        color: AppColors.muted,
-                        fontSize: 12,
-                      ),
+                      style: TextStyle(color: AppColors.muted, fontSize: 12),
                     ),
                   ],
                 ),
@@ -234,6 +216,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               controller: _email,
               keyboardType: TextInputType.emailAddress,
               textInputAction: TextInputAction.next,
+              autofillHints: const [AutofillHints.email],
               decoration: const InputDecoration(
                 labelText: 'อีเมล *',
                 prefixIcon: Icon(Icons.email_outlined),
@@ -254,12 +237,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
               controller: _password,
               obscureText: _hidePassword,
               textInputAction: TextInputAction.next,
+              autofillHints: const [AutofillHints.newPassword],
+              onChanged: (_) => setState(() {}),
               decoration: InputDecoration(
                 labelText: 'รหัสผ่าน *',
-                helperText:
-                    'อย่างน้อย 8 ตัวอักษร และต้องตรงตามเงื่อนไขของระบบ',
-                prefixIcon:
-                    const Icon(Icons.lock_outline_rounded),
+                helperText: 'อย่างน้อย 8 ตัวอักษร และต้องตรงตามเงื่อนไขของระบบ',
+                prefixIcon: const Icon(Icons.lock_outline_rounded),
                 suffixIcon: IconButton(
                   onPressed: () {
                     setState(() {
@@ -274,18 +257,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
               ),
             ),
+            const SizedBox(height: 10),
+            PasswordStrengthIndicator(password: _password.text),
             const SizedBox(height: 12),
             TextField(
               controller: _confirm,
               obscureText: _hideConfirm,
               textInputAction: TextInputAction.done,
+              onChanged: (_) => setState(() {}),
               onSubmitted: (_) {
                 if (!_busy) _register();
               },
               decoration: InputDecoration(
                 labelText: 'ยืนยันรหัสผ่าน *',
-                prefixIcon:
-                    const Icon(Icons.lock_reset_rounded),
+                prefixIcon: const Icon(Icons.lock_reset_rounded),
+                errorText:
+                    _confirm.text.isNotEmpty && _password.text != _confirm.text
+                    ? 'รหัสผ่านไม่ตรงกัน'
+                    : null,
                 suffixIcon: IconButton(
                   onPressed: () {
                     setState(() {
@@ -311,8 +300,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         _accepted = value ?? false;
                       });
                     },
-              controlAffinity:
-                  ListTileControlAffinity.leading,
+              controlAffinity: ListTileControlAffinity.leading,
               title: const Text(
                 'ฉันยอมรับเงื่อนไขการใช้งานและนโยบายความเป็นส่วนตัว',
                 style: TextStyle(fontSize: 13),
@@ -322,9 +310,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             SizedBox(
               height: 52,
               child: FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.info,
-                ),
+                style: FilledButton.styleFrom(backgroundColor: AppColors.info),
                 onPressed: _busy ? null : _register,
                 child: _busy
                     ? const SizedBox(

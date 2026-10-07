@@ -26,14 +26,14 @@ class VerifyEmailScreen extends StatefulWidget {
   final String? avatarExtension;
 
   @override
-  State<VerifyEmailScreen> createState() =>
-      _VerifyEmailScreenState();
+  State<VerifyEmailScreen> createState() => _VerifyEmailScreenState();
 }
 
-class _VerifyEmailScreenState
-    extends State<VerifyEmailScreen> {
+class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
   StreamSubscription<AuthState>? _subscription;
+  Timer? _resendTimer;
   bool _busy = false;
+  int _resendSeconds = 0;
 
   @override
   void initState() {
@@ -57,6 +57,7 @@ class _VerifyEmailScreenState
   @override
   void dispose() {
     _subscription?.cancel();
+    _resendTimer?.cancel();
     super.dispose();
   }
 
@@ -66,16 +67,12 @@ class _VerifyEmailScreenState
     setState(() => _busy = true);
 
     try {
-      final verifiedUser =
-          await AuthService.completeEmailVerification();
+      final verifiedUser = await AuthService.completeEmailVerification();
 
       if (verifiedUser == null) {
         if (!mounted) return;
 
-        _show(
-          'ยังไม่พบการยืนยันอีเมล กรุณากดลิงก์ในอีเมลก่อน',
-          error: true,
-        );
+        _show('ยังไม่พบการยืนยันอีเมล กรุณากดลิงก์ในอีเมลก่อน', error: true);
         return;
       }
 
@@ -85,10 +82,8 @@ class _VerifyEmailScreenState
         try {
           finalUser = await AuthService.uploadAvatar(
             bytes: widget.avatarBytes!,
-            mimeType:
-                widget.avatarMimeType ?? 'image/jpeg',
-            extension:
-                widget.avatarExtension ?? 'jpg',
+            mimeType: widget.avatarMimeType ?? 'image/jpeg',
+            extension: widget.avatarExtension ?? 'jpg',
           );
         } catch (_) {
           // รูปโปรไฟล์เป็น optional
@@ -103,10 +98,7 @@ class _VerifyEmailScreenState
       _show(e.message, error: true);
     } catch (_) {
       if (!mounted) return;
-      _show(
-        'ตรวจสอบการยืนยันอีเมลไม่สำเร็จ กรุณาลองอีกครั้ง',
-        error: true,
-      );
+      _show('ตรวจสอบการยืนยันอีเมลไม่สำเร็จ กรุณาลองอีกครั้ง', error: true);
     } finally {
       if (mounted) {
         setState(() => _busy = false);
@@ -114,18 +106,36 @@ class _VerifyEmailScreenState
     }
   }
 
+  void _startResendCooldown() {
+    _resendTimer?.cancel();
+    setState(() => _resendSeconds = 60);
+
+    _resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+
+      if (_resendSeconds <= 1) {
+        timer.cancel();
+        setState(() => _resendSeconds = 0);
+      } else {
+        setState(() => _resendSeconds -= 1);
+      }
+    });
+  }
+
   Future<void> _resend() async {
-    if (_busy) return;
+    if (_busy || _resendSeconds > 0) return;
 
     setState(() => _busy = true);
 
     try {
-      await AuthService.resendVerificationEmail(
-        widget.email,
-      );
+      await AuthService.resendVerificationEmail(widget.email);
 
       if (!mounted) return;
 
+      _startResendCooldown();
       _show('ส่งอีเมลยืนยันอีกครั้งแล้ว');
     } on AuthServiceException catch (e) {
       if (!mounted) return;
@@ -137,16 +147,12 @@ class _VerifyEmailScreenState
     }
   }
 
-  void _show(
-    String message, {
-    bool error = false,
-  }) {
+  void _show(String message, {bool error = false}) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
-          backgroundColor:
-              error ? AppColors.error : null,
+          backgroundColor: error ? AppColors.error : null,
           content: Text(message),
         ),
       );
@@ -158,9 +164,7 @@ class _VerifyEmailScreenState
       appBar: AppBar(
         title: const Text(
           'ยืนยันอีเมล',
-          style: TextStyle(
-            fontWeight: FontWeight.w900,
-          ),
+          style: TextStyle(fontWeight: FontWeight.w900),
         ),
       ),
       body: SafeArea(
@@ -173,8 +177,7 @@ class _VerifyEmailScreenState
                 width: 94,
                 height: 94,
                 decoration: BoxDecoration(
-                  color:
-                      AppColors.info.withValues(alpha: .10),
+                  color: AppColors.info.withValues(alpha: .10),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
@@ -188,46 +191,33 @@ class _VerifyEmailScreenState
             const Text(
               'ยืนยันอีเมลของคุณ',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 27,
-                fontWeight: FontWeight.w900,
-              ),
+              style: TextStyle(fontSize: 27, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 12),
             const Text(
               'เราได้ส่งลิงก์ยืนยันไปที่',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                color: AppColors.muted,
-              ),
+              style: TextStyle(color: AppColors.muted),
             ),
             const SizedBox(height: 6),
             Text(
               widget.email,
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 16,
-              ),
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
             ),
             const SizedBox(height: 16),
             const Text(
               'เปิดอีเมล → กดลิงก์ยืนยัน → '
               'กลับมาที่แอป แล้วกดตรวจสอบอีกครั้ง',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                color: AppColors.muted,
-                height: 1.5,
-              ),
+              style: TextStyle(color: AppColors.muted, height: 1.5),
             ),
             const SizedBox(height: 28),
             SizedBox(
               height: 52,
               child: FilledButton.icon(
-                onPressed:
-                    _busy ? null : _finishIfVerified,
-                icon:
-                    const Icon(Icons.verified_outlined),
+                onPressed: _busy ? null : _finishIfVerified,
+                icon: const Icon(Icons.verified_outlined),
                 label: _busy
                     ? const SizedBox(
                         width: 22,
@@ -239,9 +229,7 @@ class _VerifyEmailScreenState
                       )
                     : const Text(
                         'ฉันยืนยันอีเมลแล้ว',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                        ),
+                        style: TextStyle(fontWeight: FontWeight.w800),
                       ),
               ),
             ),
@@ -249,9 +237,11 @@ class _VerifyEmailScreenState
             SizedBox(
               height: 48,
               child: OutlinedButton(
-                onPressed: _busy ? null : _resend,
-                child: const Text(
-                  'ส่งอีเมลยืนยันอีกครั้ง',
+                onPressed: _busy || _resendSeconds > 0 ? null : _resend,
+                child: Text(
+                  _resendSeconds > 0
+                      ? 'ส่งอีกครั้งใน $_resendSeconds วินาที'
+                      : 'ส่งอีเมลยืนยันอีกครั้ง',
                 ),
               ),
             ),
@@ -264,13 +254,9 @@ class _VerifyEmailScreenState
 
                       if (!context.mounted) return;
 
-                      Navigator.of(context).popUntil(
-                        (route) => route.isFirst,
-                      );
+                      Navigator.of(context).popUntil((route) => route.isFirst);
                     },
-              child: const Text(
-                'กลับไปหน้าเข้าสู่ระบบ',
-              ),
+              child: const Text('กลับไปหน้าเข้าสู่ระบบ'),
             ),
           ],
         ),

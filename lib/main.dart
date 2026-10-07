@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app/supabase_config.dart';
 import 'app/theme.dart';
 import 'features/auth/login_screen.dart';
+import 'features/auth/reset_password_screen.dart';
 import 'features/home/home_shell.dart';
 import 'models/user.dart';
 import 'services/auth_service.dart';
@@ -33,13 +34,13 @@ class OffGridSosApp extends StatefulWidget {
   const OffGridSosApp({super.key});
 
   @override
-  State<OffGridSosApp> createState() =>
-      _OffGridSosAppState();
+  State<OffGridSosApp> createState() => _OffGridSosAppState();
 }
 
 class _OffGridSosAppState extends State<OffGridSosApp> {
   AppUser? _me;
   bool _loading = true;
+  bool _passwordRecovery = false;
 
   StreamSubscription<AuthState>? _authSubscription;
 
@@ -49,15 +50,24 @@ class _OffGridSosAppState extends State<OffGridSosApp> {
 
     _restore();
 
-    _authSubscription =
-        AuthService.authStateChanges.listen(
+    _authSubscription = AuthService.authStateChanges.listen(
       (data) async {
         switch (data.event) {
+          case AuthChangeEvent.passwordRecovery:
+            if (mounted) {
+              setState(() {
+                _passwordRecovery = true;
+                _me = null;
+                _loading = false;
+              });
+            }
+            break;
+
           case AuthChangeEvent.signedIn:
           case AuthChangeEvent.initialSession:
           case AuthChangeEvent.userUpdated:
           case AuthChangeEvent.tokenRefreshed:
-            if (data.session != null) {
+            if (data.session != null && !_passwordRecovery) {
               await _restore();
             }
             break;
@@ -84,8 +94,7 @@ class _OffGridSosAppState extends State<OffGridSosApp> {
 
   Future<void> _restore() async {
     try {
-      final identity =
-          await AuthService.restoreIdentity();
+      final identity = await AuthService.restoreIdentity();
 
       if (!mounted) return;
 
@@ -112,6 +121,27 @@ class _OffGridSosAppState extends State<OffGridSosApp> {
     });
   }
 
+  Future<void> _finishPasswordRecovery() async {
+    if (!mounted) return;
+    setState(() {
+      _passwordRecovery = false;
+      _me = null;
+      _loading = false;
+    });
+  }
+
+  Future<void> _cancelPasswordRecovery() async {
+    await AuthService.cancelPasswordRecovery();
+
+    if (!mounted) return;
+
+    setState(() {
+      _passwordRecovery = false;
+      _me = null;
+      _loading = false;
+    });
+  }
+
   @override
   void dispose() {
     _authSubscription?.cancel();
@@ -125,23 +155,21 @@ class _OffGridSosAppState extends State<OffGridSosApp> {
       debugShowCheckedModeBanner: false,
       theme: buildTheme(),
       home: _loading
-          ? const Scaffold(
-              body: Center(
-                child: CircularProgressIndicator(),
-              ),
+          ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+          : _passwordRecovery
+          ? ResetPasswordScreen(
+              onDone: _finishPasswordRecovery,
+              onCancel: _cancelPasswordRecovery,
             )
           : _me == null
-              ? LoginScreen(
-                  onDone: (identity) {
-                    setState(() {
-                      _me = identity;
-                    });
-                  },
-                )
-              : HomeShell(
-                  me: _me!,
-                  onLogout: _logout,
-                ),
+          ? LoginScreen(
+              onDone: (identity) {
+                setState(() {
+                  _me = identity;
+                });
+              },
+            )
+          : HomeShell(me: _me!, onLogout: _logout),
     );
   }
 }
@@ -160,11 +188,9 @@ class _MissingSupabaseKeyApp extends StatelessWidget {
             padding: const EdgeInsets.all(24),
             child: Center(
               child: ConstrainedBox(
-                constraints:
-                    const BoxConstraints(maxWidth: 560),
+                constraints: const BoxConstraints(maxWidth: 560),
                 child: Column(
-                  mainAxisAlignment:
-                      MainAxisAlignment.center,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const Icon(
                       Icons.key_off_outlined,

@@ -8,6 +8,7 @@ import '../../models/user.dart';
 import '../../services/auth_service.dart';
 import '../admin/admin_rescue_requests_screen.dart';
 import '../auth/rescue_verification_screen.dart';
+import 'account_settings_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({
@@ -251,6 +252,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     await _refreshProfile();
                   }
                 },
+              ),
+            if (_me.isMember)
+              ListTile(
+                leading: const Icon(Icons.manage_accounts_outlined),
+                title: const Text('จัดการบัญชี'),
+                subtitle: const Text('อ่าน แก้ไข และลบบัญชีสมาชิก (CRUD)'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: _busy
+                    ? null
+                    : () async {
+                        await Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => AccountSettingsScreen(
+                              user: _me,
+                              onUpdated: (updated) {
+                                if (mounted) {
+                                  setState(() => _me = updated);
+                                }
+                              },
+                              onDeleted: widget.onLogout,
+                            ),
+                          ),
+                        );
+                        if (mounted && _me.isMember) {
+                          await _refreshProfile();
+                        }
+                      },
               ),
             const Divider(height: 30),
             ListTile(

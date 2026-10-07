@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 import '../app/supabase_config.dart';
+import '../data/local/local_database.dart';
 import '../models/user.dart';
 
 class AuthService {
@@ -16,6 +17,21 @@ class AuthService {
       _supabase.auth.onAuthStateChange;
 
   static User? get currentAuthUser => _supabase.auth.currentUser;
+
+  static bool isValidEmail(String value) {
+    final email = value.trim().toLowerCase();
+    return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email);
+  }
+
+  static String? validatePassword(String password) {
+    if (password.length < 8) {
+      return 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร';
+    }
+    if (password.length > 128) {
+      return 'รหัสผ่านต้องไม่เกิน 128 ตัวอักษร';
+    }
+    return null;
+  }
 
   static Future<String> _getOrCreateDeviceId() async {
     final existing = await _store.read(key: 'deviceId');
@@ -69,11 +85,12 @@ class AuthService {
     if (cleanLast.isEmpty) {
       throw const AuthServiceException('กรุณากรอกนามสกุล');
     }
-    if (cleanEmail.isEmpty) {
-      throw const AuthServiceException('กรุณากรอกอีเมล');
+    if (!isValidEmail(cleanEmail)) {
+      throw const AuthServiceException('กรุณากรอกอีเมลให้ถูกต้อง');
     }
-    if (password.length < 8) {
-      throw const AuthServiceException('รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร');
+    final passwordError = validatePassword(password);
+    if (passwordError != null) {
+      throw AuthServiceException(passwordError);
     }
 
     try {
@@ -98,7 +115,12 @@ class AuthService {
       throw AuthServiceException(_authMessage(e.message));
     } catch (e) {
       if (e is AuthServiceException) rethrow;
-      throw AuthServiceException('สมัครสมาชิกไม่สำเร็จ: $e');
+      throw AuthServiceException(
+        _unexpectedAuthMessage(
+          e,
+          fallback: 'สมัครสมาชิกไม่สำเร็จ กรุณาลองอีกครั้ง',
+        ),
+      );
     }
   }
 
@@ -125,6 +147,13 @@ class AuthService {
       return _loadSignedInMember();
     } on AuthException catch (e) {
       throw AuthServiceException(_authMessage(e.message));
+    } catch (e) {
+      throw AuthServiceException(
+        _unexpectedAuthMessage(
+          e,
+          fallback: 'ไม่สามารถเข้าสู่ระบบได้ กรุณาลองอีกครั้ง',
+        ),
+      );
     }
   }
 
@@ -136,14 +165,25 @@ class AuthService {
   static Future<void> resendVerificationEmail(String email) async {
     final cleanEmail = email.trim().toLowerCase();
 
-    if (cleanEmail.isEmpty) {
-      throw const AuthServiceException('กรุณากรอกอีเมล');
+    if (!isValidEmail(cleanEmail)) {
+      throw const AuthServiceException('กรุณากรอกอีเมลให้ถูกต้อง');
     }
 
     try {
-      await _supabase.auth.resend(type: OtpType.signup, email: cleanEmail);
+      await _supabase.auth.resend(
+        type: OtpType.signup,
+        email: cleanEmail,
+        emailRedirectTo: SupabaseConfig.emailRedirectTo,
+      );
     } on AuthException catch (e) {
       throw AuthServiceException(_authMessage(e.message));
+    } catch (e) {
+      throw AuthServiceException(
+        _unexpectedAuthMessage(
+          e,
+          fallback: 'ส่งอีเมลยืนยันไม่สำเร็จ กรุณาลองอีกครั้ง',
+        ),
+      );
     }
   }
 
@@ -160,18 +200,60 @@ class AuthService {
   static Future<void> sendPasswordResetEmail(String email) async {
     final cleanEmail = email.trim().toLowerCase();
 
-    if (cleanEmail.isEmpty) {
-      throw const AuthServiceException('กรุณากรอกอีเมล');
+    if (!isValidEmail(cleanEmail)) {
+      throw const AuthServiceException('กรุณากรอกอีเมลให้ถูกต้อง');
     }
 
     try {
       await _supabase.auth.resetPasswordForEmail(
         cleanEmail,
-        redirectTo: SupabaseConfig.emailRedirectTo,
+        redirectTo: SupabaseConfig.passwordRecoveryRedirectTo,
       );
     } on AuthException catch (e) {
       throw AuthServiceException(_authMessage(e.message));
+    } catch (e) {
+      throw AuthServiceException(
+        _unexpectedAuthMessage(
+          e,
+          fallback: 'ส่งคำขอรีเซ็ตรหัสผ่านไม่สำเร็จ กรุณาลองอีกครั้ง',
+        ),
+      );
     }
+  }
+
+  static Future<void> completePasswordRecovery(String newPassword) async {
+    final passwordError = validatePassword(newPassword);
+    if (passwordError != null) {
+      throw AuthServiceException(passwordError);
+    }
+
+    if (_supabase.auth.currentSession == null ||
+        _supabase.auth.currentUser == null) {
+      throw const AuthServiceException(
+        'ลิงก์รีเซ็ตรหัสผ่านหมดอายุหรือไม่ถูกต้อง กรุณาขอลิงก์ใหม่',
+      );
+    }
+
+    try {
+      await _supabase.auth.updateUser(UserAttributes(password: newPassword));
+
+      // Force a clean login with the new password after recovery.
+      await clear();
+    } on AuthException catch (e) {
+      throw AuthServiceException(_authMessage(e.message));
+    } catch (e) {
+      if (e is AuthServiceException) rethrow;
+      throw AuthServiceException(
+        _unexpectedAuthMessage(
+          e,
+          fallback: 'ตั้งรหัสผ่านใหม่ไม่สำเร็จ กรุณาลองอีกครั้ง',
+        ),
+      );
+    }
+  }
+
+  static Future<void> cancelPasswordRecovery() async {
+    await clear();
   }
 
   static Future<AppUser?> restoreIdentity() async {
@@ -345,27 +427,231 @@ class AuthService {
       throw const AuthServiceException('ชื่อจริงและนามสกุลห้ามว่าง');
     }
 
-    await _supabase
-        .from('profiles')
-        .update({'first_name': cleanFirst, 'last_name': cleanLast})
-        .eq('id', user.id);
+    try {
+      await _supabase.auth.updateUser(
+        UserAttributes(
+          data: {
+            'first_name': cleanFirst,
+            'last_name': cleanLast,
+            'phone': cleanPhone,
+          },
+        ),
+      );
 
-    await _supabase
-        .from('user_private')
-        .update({'phone': cleanPhone})
-        .eq('user_id', user.id);
+      await _supabase
+          .from('profiles')
+          .update({'first_name': cleanFirst, 'last_name': cleanLast})
+          .eq('id', user.id);
 
-    await _supabase.auth.updateUser(
-      UserAttributes(
-        data: {
-          'first_name': cleanFirst,
-          'last_name': cleanLast,
-          'phone': cleanPhone,
-        },
-      ),
-    );
+      await _supabase
+          .from('user_private')
+          .update({'phone': cleanPhone})
+          .eq('user_id', user.id);
 
-    return _loadSignedInMember();
+      return _loadSignedInMember();
+    } on AuthException catch (e) {
+      throw AuthServiceException(_authMessage(e.message));
+    } on PostgrestException catch (_) {
+      throw const AuthServiceException(
+        'บันทึกข้อมูลบัญชีไม่สำเร็จ กรุณาลองอีกครั้ง',
+      );
+    } catch (e) {
+      if (e is AuthServiceException) rethrow;
+      throw AuthServiceException(
+        _unexpectedAuthMessage(
+          e,
+          fallback: 'บันทึกข้อมูลบัญชีไม่สำเร็จ กรุณาลองอีกครั้ง',
+        ),
+      );
+    }
+  }
+
+  static Future<void> verifyCurrentPassword(String currentPassword) async {
+    final user = _supabase.auth.currentUser;
+    final email = user?.email;
+
+    if (user == null || email == null || email.isEmpty) {
+      throw const AuthServiceException('กรุณาเข้าสู่ระบบก่อน');
+    }
+    if (currentPassword.isEmpty) {
+      throw const AuthServiceException('กรุณากรอกรหัสผ่านปัจจุบัน');
+    }
+
+    try {
+      final response = await _supabase.auth.signInWithPassword(
+        email: email,
+        password: currentPassword,
+      );
+
+      if (response.user == null || response.user!.id != user.id) {
+        throw const AuthServiceException('รหัสผ่านปัจจุบันไม่ถูกต้อง');
+      }
+    } on AuthException catch (e) {
+      final raw = e.message.toLowerCase();
+      if (raw.contains('invalid login credentials') ||
+          raw.contains('password')) {
+        throw const AuthServiceException('รหัสผ่านปัจจุบันไม่ถูกต้อง');
+      }
+      throw AuthServiceException(_authMessage(e.message));
+    } catch (e) {
+      if (e is AuthServiceException) rethrow;
+      throw AuthServiceException(
+        _unexpectedAuthMessage(
+          e,
+          fallback: 'ตรวจสอบรหัสผ่านปัจจุบันไม่สำเร็จ กรุณาลองอีกครั้ง',
+        ),
+      );
+    }
+  }
+
+  static Future<void> requestEmailChange({
+    required String newEmail,
+    required String currentPassword,
+  }) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) {
+      throw const AuthServiceException('กรุณาเข้าสู่ระบบก่อน');
+    }
+
+    final cleanEmail = newEmail.trim().toLowerCase();
+    final currentEmail = user.email?.trim().toLowerCase() ?? '';
+
+    if (!isValidEmail(cleanEmail)) {
+      throw const AuthServiceException('กรุณากรอกอีเมลใหม่ให้ถูกต้อง');
+    }
+    if (cleanEmail == currentEmail) {
+      throw const AuthServiceException('อีเมลใหม่ต้องไม่ซ้ำกับอีเมลปัจจุบัน');
+    }
+
+    await verifyCurrentPassword(currentPassword);
+
+    try {
+      await _supabase.auth.updateUser(
+        UserAttributes(email: cleanEmail),
+        emailRedirectTo: SupabaseConfig.emailRedirectTo,
+      );
+    } on AuthException catch (e) {
+      throw AuthServiceException(_authMessage(e.message));
+    } catch (e) {
+      throw AuthServiceException(
+        _unexpectedAuthMessage(
+          e,
+          fallback: 'ส่งคำขอเปลี่ยนอีเมลไม่สำเร็จ กรุณาลองอีกครั้ง',
+        ),
+      );
+    }
+  }
+
+  static Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final user = _supabase.auth.currentUser;
+
+    if (user == null) {
+      throw const AuthServiceException('กรุณาเข้าสู่ระบบก่อน');
+    }
+
+    if (currentPassword.isEmpty) {
+      throw const AuthServiceException('กรุณากรอกรหัสผ่านปัจจุบัน');
+    }
+
+    final passwordError = validatePassword(newPassword);
+
+    if (passwordError != null) {
+      throw AuthServiceException(passwordError);
+    }
+
+    if (currentPassword == newPassword) {
+      throw const AuthServiceException(
+        'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านปัจจุบัน',
+      );
+    }
+
+    try {
+      await _supabase.auth.updateUser(
+        UserAttributes(password: newPassword, currentPassword: currentPassword),
+      );
+    } on AuthException catch (e) {
+      final raw = e.message.toLowerCase();
+
+      if (raw.contains('invalid login credentials') ||
+          raw.contains('password does not match') ||
+          raw.contains('incorrect password') ||
+          raw.contains('invalid current password')) {
+        throw const AuthServiceException('รหัสผ่านปัจจุบันไม่ถูกต้อง');
+      }
+
+      if (raw.contains('current password required')) {
+        throw const AuthServiceException(
+          'ระบบไม่สามารถตรวจสอบรหัสผ่านปัจจุบันได้ กรุณาลองอีกครั้ง',
+        );
+      }
+
+      if (raw.contains('same password') ||
+          raw.contains('different from the old password')) {
+        throw const AuthServiceException(
+          'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านปัจจุบัน',
+        );
+      }
+
+      if (raw.contains('weak password') ||
+          raw.contains('password should') ||
+          raw.contains('password must')) {
+        throw const AuthServiceException(
+          'รหัสผ่านใหม่ไม่ผ่านเงื่อนไขความปลอดภัย',
+        );
+      }
+
+      throw AuthServiceException(_authMessage(e.message));
+    } catch (e) {
+      if (e is AuthServiceException) {
+        rethrow;
+      }
+
+      throw AuthServiceException(
+        _unexpectedAuthMessage(
+          e,
+          fallback: 'เปลี่ยนรหัสผ่านไม่สำเร็จ กรุณาลองอีกครั้ง',
+        ),
+      );
+    }
+  }
+
+  static Future<void> deleteMyAccount({required String currentPassword}) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) {
+      throw const AuthServiceException('กรุณาเข้าสู่ระบบก่อน');
+    }
+
+    final userId = user.id;
+
+    try {
+      final response = await _supabase.functions.invoke(
+        'delete-account',
+        body: const <String, dynamic>{'confirm': true},
+      );
+
+      if (response.status < 200 || response.status >= 300) {
+        if (response.status == 401) {
+          throw const AuthServiceException(
+            'ต้องยืนยันตัวตนใหม่ก่อนลบบัญชี กรุณากรอกรหัสผ่านอีกครั้ง',
+          );
+        }
+        throw const AuthServiceException('ลบบัญชีไม่สำเร็จ กรุณาลองอีกครั้ง');
+      }
+
+      await LocalDatabase.instance.clearOwnerData(userId);
+      await clear();
+    } catch (e) {
+      if (e is AuthServiceException) rethrow;
+      throw AuthServiceException(
+        _unexpectedAuthMessage(
+          e,
+          fallback: 'ลบบัญชีไม่สำเร็จ กรุณาลองอีกครั้ง',
+        ),
+      );
+    }
   }
 
   static Future<AppUser> uploadAvatar({
@@ -622,6 +908,21 @@ class AuthService {
     await _store.delete(key: 'isMember');
   }
 
+  static String _unexpectedAuthMessage(
+    Object error, {
+    required String fallback,
+  }) {
+    final message = error.toString().toLowerCase();
+    if (message.contains('failed to fetch') ||
+        message.contains('socketexception') ||
+        message.contains('network') ||
+        message.contains('connection') ||
+        message.contains('clientexception')) {
+      return 'ไม่สามารถเชื่อมต่ออินเทอร์เน็ตได้ กรุณาตรวจสอบเครือข่ายแล้วลองอีกครั้ง';
+    }
+    return fallback;
+  }
+
   static String _authMessage(String raw) {
     final message = raw.toLowerCase();
 
@@ -635,14 +936,28 @@ class AuthService {
         message.contains('already been registered')) {
       return 'อีเมลนี้ถูกสมัครใช้งานแล้ว';
     }
-    if (message.contains('password')) {
+    if (message.contains('current password') ||
+        message.contains('password does not match')) {
+      return 'รหัสผ่านปัจจุบันไม่ถูกต้อง';
+    }
+    if (message.contains('same password') ||
+        message.contains('different from the old password')) {
+      return 'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านปัจจุบัน';
+    }
+    if (message.contains('new email should be different')) {
+      return 'อีเมลใหม่ต้องไม่ซ้ำกับอีเมลปัจจุบัน';
+    }
+    if (message.contains('rate limit') ||
+        message.contains('too many requests')) {
+      return 'มีการร้องขอหลายครั้งเกินไป กรุณารอสักครู่แล้วลองใหม่';
+    }
+    if (message.contains('weak password') ||
+        message.contains('password should') ||
+        message.contains('password must')) {
       return 'รหัสผ่านไม่ผ่านเงื่อนไขที่กำหนด';
     }
-    if (message.contains('rate limit')) {
-      return 'มีการร้องขอหลายครั้งเกินไป กรุณาลองใหม่ภายหลัง';
-    }
 
-    return raw;
+    return 'ดำเนินการยืนยันตัวตนไม่สำเร็จ กรุณาลองอีกครั้ง';
   }
 }
 

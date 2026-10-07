@@ -56,6 +56,27 @@ class LocalDatabase {
     return syncQueueStore.count(db);
   }
 
+
+  Future<void> clearOwnerData(String ownerId) async {
+    final db = await database;
+
+    await db.transaction((txn) async {
+      final ownerFilter = Finder(
+        filter: Filter.equals('owner_local_id', ownerId),
+      );
+
+      await sosStore.delete(txn, finder: ownerFilter);
+      await messageStore.delete(txn, finder: ownerFilter);
+      await conversationStore.delete(txn, finder: ownerFilter);
+      await syncQueueStore.delete(txn, finder: ownerFilter);
+
+      await metaStore.delete(
+        txn,
+        finder: Finder(filter: Filter.equals('owner_id', ownerId)),
+      );
+    });
+  }
+
   Future<void> clearWeek3DemoData() async {
     final db = await database;
 
