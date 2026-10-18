@@ -40,21 +40,22 @@ class StatusBadge extends StatelessWidget {
     PeerKind.normal => 'ผู้ใช้ทั่วไป · พร้อมช่วย Relay',
   };
 
-  Color get _color => switch (kind) {
+  Color _color(BuildContext context) => switch (kind) {
     PeerKind.sos => AppColors.sos,
-    PeerKind.rescue => AppColors.rescue,
-    PeerKind.normal => AppColors.muted,
+    PeerKind.rescue => context.colors.rescue,
+    PeerKind.normal => context.colors.muted,
   };
 
   @override
   Widget build(BuildContext context) {
     final desc = description ?? _defaultDescription;
+    final color = _color(context);
     return Semantics(
       button: onTap != null,
       label: '$_code $name, $desc, $detail',
       hint: onTap != null ? 'แตะสองครั้งเพื่อเปิดการสนทนา' : null,
       child: AppCard(
-        borderColor: _color.withValues(alpha: .85),
+        borderColor: color.withValues(alpha: .40),
         padding: EdgeInsets.zero,
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
@@ -70,10 +71,10 @@ class StatusBadge extends StatelessWidget {
                       width: 44,
                       height: 44,
                       decoration: BoxDecoration(
-                        color: _color.withValues(alpha: .14),
+                        color: color.withValues(alpha: .14),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Icon(_icon, color: _color, size: 27),
+                      child: Icon(_icon, color: color, size: 27),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -85,7 +86,7 @@ class StatusBadge extends StatelessWidget {
                               Text(
                                 _code,
                                 style: TextStyle(
-                                  color: _color,
+                                  color: color,
                                   fontSize: 15,
                                   fontWeight: FontWeight.w900,
                                 ),
@@ -103,8 +104,8 @@ class StatusBadge extends StatelessWidget {
                               ),
                               Text(
                                 detail,
-                                style: const TextStyle(
-                                  color: AppColors.muted,
+                                style: TextStyle(
+                                  color: context.colors.muted,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
@@ -113,7 +114,7 @@ class StatusBadge extends StatelessWidget {
                           const SizedBox(height: 4),
                           Text(
                             desc,
-                            style: const TextStyle(color: AppColors.muted),
+                            style: TextStyle(color: context.colors.muted),
                           ),
                         ],
                       ),

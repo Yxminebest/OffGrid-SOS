@@ -7,6 +7,13 @@ import 'package:uuid/uuid.dart';
 import '../app/supabase_config.dart';
 import '../data/local/local_database.dart';
 import '../models/user.dart';
+import 'nearby_mesh_service.dart';
+import 'sync_service.dart';
+import 'cloud_inbox_service.dart';
+import 'app_notifications.dart';
+import 'chat_media_cache.dart';
+import 'nearby_media_files.dart';
+import 'chat_camera_service.dart';
 
 class AuthService {
   static const FlutterSecureStorage _store = FlutterSecureStorage();
@@ -627,6 +634,7 @@ class AuthService {
     final userId = user.id;
 
     try {
+      await verifyCurrentPassword(currentPassword);
       final response = await _supabase.functions.invoke(
         'delete-account',
         body: const <String, dynamic>{'confirm': true},
@@ -641,6 +649,14 @@ class AuthService {
         throw const AuthServiceException('ลบบัญชีไม่สำเร็จ กรุณาลองอีกครั้ง');
       }
 
+      await CloudInboxService.instance.stop();
+      await AppNotifications.instance.stopBackground();
+      await SyncService.instance.stop();
+      await NearbyMeshService.instance.resetSession();
+      await NearbyMeshService.instance.deleteIdentity(userId);
+      await ChatMediaCache.instance.deleteOwner(userId);
+      await NearbyMediaFiles().deleteOwner(userId);
+      await ChatCameraService.instance.discardFor(userId);
       await LocalDatabase.instance.clearOwnerData(userId);
       await clear();
     } catch (e) {
@@ -894,8 +910,13 @@ class AuthService {
   }
 
   static Future<void> clear() async {
+    await CloudInboxService.instance.stop();
+    await AppNotifications.instance.stopBackground();
+    // Finish/cancel the previous account's work before discarding its session.
+    await SyncService.instance.stop();
+    await NearbyMeshService.instance.resetSession();
     try {
-      await _supabase.auth.signOut();
+      await _supabase.auth.signOut(scope: SignOutScope.local);
     } catch (_) {}
 
     await _store.delete(key: 'firstName');

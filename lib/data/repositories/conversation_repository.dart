@@ -11,11 +11,16 @@ class ConversationRepository {
     final query = _local.conversationStore.query(
       finder: Finder(
         filter: Filter.equals('owner_local_id', ownerLocalId),
-        sortOrders: [SortOrder('last_message_at', false), SortOrder('updated_at', false)],
+        sortOrders: [
+          SortOrder('last_message_at', false),
+          SortOrder('updated_at', false),
+        ],
       ),
     );
 
-    yield* query.onSnapshots(db).map(
+    yield* query
+        .onSnapshots(db)
+        .map(
           (items) => items
               .map(
                 (item) => LocalChatConversation.fromLocalMap(

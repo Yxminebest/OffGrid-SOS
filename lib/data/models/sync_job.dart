@@ -8,6 +8,7 @@ class SyncJob {
     required this.updatedAt,
     this.id,
     this.retryCount = 0,
+    this.revision = 1,
     this.lastError,
     this.nextRetryAt,
   });
@@ -25,6 +26,9 @@ class SyncJob {
   final String operation;
 
   final int retryCount;
+
+  /// Incremented for each local mutation, including edits during an upload.
+  final int revision;
   final String? lastError;
   final DateTime? nextRetryAt;
 
@@ -37,6 +41,7 @@ class SyncJob {
     'operation': operation,
     'owner_local_id': ownerLocalId,
     'retry_count': retryCount,
+    'revision': revision,
     'last_error': lastError,
     'next_retry_at': nextRetryAt?.toUtc().toIso8601String(),
     'created_at': createdAt.toUtc().toIso8601String(),
@@ -51,6 +56,7 @@ class SyncJob {
       operation: map['operation']!.toString(),
       ownerLocalId: map['owner_local_id']!.toString(),
       retryCount: (map['retry_count'] as num?)?.toInt() ?? 0,
+      revision: (map['revision'] as num?)?.toInt() ?? 1,
       lastError: map['last_error']?.toString(),
       nextRetryAt: _dateOrNull(map['next_retry_at']),
       createdAt: _date(map['created_at']),

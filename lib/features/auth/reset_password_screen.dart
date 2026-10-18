@@ -104,7 +104,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 24, 20, 36),
           children: [
-            const Icon(Icons.password_rounded, size: 68, color: AppColors.info),
+            Icon(Icons.password_rounded, size: 68, color: context.colors.info),
             const SizedBox(height: 18),
             const Text(
               'สร้างรหัสผ่านใหม่',
@@ -112,11 +112,11 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
               style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 10),
-            const Text(
+            Text(
               'ลิงก์กู้คืนได้รับการยืนยันแล้ว '
               'กรุณาตั้งรหัสผ่านใหม่สำหรับบัญชีของคุณ',
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.muted, height: 1.45),
+              style: TextStyle(color: context.colors.muted, height: 1.45),
             ),
             const SizedBox(height: 24),
             TextField(

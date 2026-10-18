@@ -3,12 +3,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../app/theme.dart';
+import '../../widgets/page_header.dart';
 import '../../data/models/local_chat_conversation.dart';
 import '../../models/user.dart';
 import '../../services/chat_service.dart';
 import '../../services/sync_service.dart';
 import 'conversation_screen.dart';
 import 'new_chat_screen.dart';
+import 'nearby_conversation_screen.dart';
+import '../../services/network_service.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key, required this.me});
@@ -45,22 +48,27 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _refresh() async {
-    if (!widget.me.isMember || _refreshing) return;
+    if (!widget.me.isMember ||
+        _refreshing ||
+        !NetworkService.instance.online.value) {
+      return;
+    }
     setState(() => _refreshing = true);
     try {
       await SyncService.instance.syncNow();
       await ChatService.instance.refreshInbox(widget.me);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('รีเฟรชแชทไม่สำเร็จ: $e')));
+    } catch (_) {
+      // Keep saved chats available while the server is unreachable.
     } finally {
       if (mounted) setState(() => _refreshing = false);
     }
   }
 
   Future<void> _newChat() async {
+    if (!NetworkService.instance.online.value) {
+      _notice('ออฟไลน์ · เลือกผู้ติดต่อ Nearby ในรายการแชทด้านบน');
+      return;
+    }
     if (!widget.me.isMember) {
       _notice('แชทกับผู้ใช้อื่นต้องเข้าสู่ระบบด้วยบัญชีสมาชิก');
       return;
@@ -99,31 +107,20 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     if (!widget.me.isMember) {
       return SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(28),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.chat_bubble_outline_rounded,
-                  size: 52,
-                  color: AppColors.info,
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'แชทระหว่างผู้ใช้',
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Guest ใช้งาน Local SOS ได้ แต่การส่งข้อความถึงผู้ใช้อื่นต้องเข้าสู่ระบบเพื่อยืนยันตัวตนและรักษาความปลอดภัยของห้องสนทนา',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: AppColors.muted, height: 1.5),
-                ),
-              ],
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(22, 24, 22, 12),
+              child: PageHeader(
+                title: 'ข้อความ',
+                subtitle: 'สนทนาผ่าน Nearby ได้แม้ไม่มีอินเทอร์เน็ต',
+              ),
             ),
-          ),
+            Expanded(
+              child: SingleChildScrollView(child: NearbyInbox(me: widget.me)),
+            ),
+          ],
         ),
       );
     }
@@ -132,23 +129,26 @@ class _ChatScreenState extends State<ChatScreen> {
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(18, 18, 10, 8),
+            padding: const EdgeInsets.fromLTRB(22, 24, 16, 16),
             child: Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'แชท',
+                        'ข้อความ',
                         style: TextStyle(
-                          fontSize: 27,
-                          fontWeight: FontWeight.w900,
+                          fontSize: 25,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                       Text(
-                        'ข้อความส่วนตัว • Local-first • Realtime',
-                        style: TextStyle(color: AppColors.muted, fontSize: 11),
+                        'ติดตามและพูดคุยกับคนที่คุณติดต่อ',
+                        style: TextStyle(
+                          color: context.colors.muted,
+                          fontSize: 13,
+                        ),
                       ),
                     ],
                   ),
@@ -173,7 +173,7 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
+            padding: const EdgeInsets.fromLTRB(22, 0, 22, 12),
             child: TextField(
               onChanged: (value) =>
                   setState(() => _filter = value.trim().toLowerCase()),
@@ -187,13 +187,28 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 22),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'แชท Nearby',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+          ),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 230),
+            child: SingleChildScrollView(child: NearbyInbox(me: widget.me)),
+          ),
+          const Divider(height: 16),
           Expanded(
             child: StreamBuilder<List<LocalChatConversation>>(
               stream: ChatService.instance.watchInbox(widget.me.id),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return const Center(
-                    child: Text('อ่านรายการแชทจาก Local DB ไม่สำเร็จ'),
+                    child: Text('ยังเปิดรายการข้อความไม่ได้ กรุณาลองอีกครั้ง'),
                   );
                 }
 
@@ -224,26 +239,35 @@ class _ChatScreenState extends State<ChatScreen> {
                   children: [
                     Padding(
                       padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
-                      child: Row(
-                        children: [
-                          ChoiceChip(
-                            label: Text('ทั้งหมด (${all.length})'),
-                            selected: _inboxFilter == _InboxFilter.all,
-                            onSelected: (_) {
-                              setState(() => _inboxFilter = _InboxFilter.all);
-                            },
-                          ),
-                          const SizedBox(width: 8),
-                          ChoiceChip(
-                            label: Text('ยังไม่ได้อ่าน ($unreadTotal)'),
-                            selected: _inboxFilter == _InboxFilter.unread,
-                            onSelected: (_) {
-                              setState(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) => Wrap(
+                          spacing: 8,
+                          runSpacing: 4,
+                          children: [
+                            ChoiceChip(
+                              visualDensity: VisualDensity.compact,
+                              label: Text(
+                                'ทั้งหมด (${all.length})',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              selected: _inboxFilter == _InboxFilter.all,
+                              onSelected: (_) => setState(
+                                () => _inboxFilter = _InboxFilter.all,
+                              ),
+                            ),
+                            ChoiceChip(
+                              visualDensity: VisualDensity.compact,
+                              label: Text(
+                                'ยังไม่ได้อ่าน ($unreadTotal)',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              selected: _inboxFilter == _InboxFilter.unread,
+                              onSelected: (_) => setState(
                                 () => _inboxFilter = _InboxFilter.unread,
-                              );
-                            },
-                          ),
-                        ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                     Expanded(
@@ -256,10 +280,15 @@ class _ChatScreenState extends State<ChatScreen> {
                               onRefresh: _refresh,
                               child: ListView.separated(
                                 physics: const AlwaysScrollableScrollPhysics(),
-                                padding: const EdgeInsets.fromLTRB(8, 0, 8, 24),
+                                padding: const EdgeInsets.fromLTRB(
+                                  14,
+                                  0,
+                                  14,
+                                  24,
+                                ),
                                 itemCount: list.length,
                                 separatorBuilder: (context, index) =>
-                                    const Divider(height: 1),
+                                    const SizedBox(height: 8),
                                 itemBuilder: (context, index) {
                                   final conversation = list[index];
                                   return _ConversationTile(
@@ -293,17 +322,19 @@ class _ConversationTile extends StatelessWidget {
         ? '?'
         : conversation.displayName.trim().characters.first.toUpperCase();
     return ListTile(
+      tileColor: context.colors.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       leading: Stack(
         clipBehavior: Clip.none,
         children: [
           CircleAvatar(
             radius: 25,
-            backgroundColor: AppColors.surfaceSoft,
+            backgroundColor: context.colors.surfaceSoft,
             child: Text(
               initial,
-              style: const TextStyle(fontWeight: FontWeight.w900),
+              style: const TextStyle(fontWeight: FontWeight.w700),
             ),
           ),
           if (conversation.unreadCount > 0)
@@ -323,8 +354,9 @@ class _ConversationTile extends StatelessWidget {
                       ? '99+'
                       : '${conversation.unreadCount}',
                   style: const TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w900,
+                    fontSize: 12,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
@@ -347,8 +379,8 @@ class _ConversationTile extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
           color: conversation.unreadCount > 0
-              ? AppColors.text
-              : AppColors.muted,
+              ? context.colors.text
+              : context.colors.muted,
           fontWeight: conversation.unreadCount > 0
               ? FontWeight.w700
               : FontWeight.w400,
@@ -358,7 +390,7 @@ class _ConversationTile extends StatelessWidget {
           ? null
           : Text(
               _time(conversation.lastMessageAt!),
-              style: const TextStyle(color: AppColors.muted, fontSize: 10),
+              style: TextStyle(color: context.colors.muted, fontSize: 12),
             ),
     );
   }
@@ -384,21 +416,21 @@ class _EmptyInbox extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(28),
+        padding: const EdgeInsets.all(18),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.forum_outlined, size: 52, color: AppColors.info),
+            Icon(Icons.forum_outlined, size: 52, color: context.colors.info),
             const SizedBox(height: 14),
             Text(
               filtering ? 'ไม่พบแชทที่ค้นหา' : 'ยังไม่มีห้องสนทนา',
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
             ),
             if (!filtering) ...[
               const SizedBox(height: 8),
-              const Text(
+              Text(
                 'เลือกผู้ใช้เพื่อเริ่มแชทแบบ 1 ต่อ 1',
-                style: TextStyle(color: AppColors.muted),
+                style: TextStyle(color: context.colors.muted),
               ),
               const SizedBox(height: 18),
               FilledButton.icon(

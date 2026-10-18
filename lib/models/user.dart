@@ -1,9 +1,4 @@
-enum AppRole {
-  guest,
-  user,
-  rescuer,
-  admin,
-}
+enum AppRole { guest, user, rescuer, admin }
 
 class AppUser {
   const AppUser({
@@ -67,10 +62,7 @@ class AppUser {
 }
 
 class PendingRegistration {
-  const PendingRegistration({
-    required this.email,
-    required this.userId,
-  });
+  const PendingRegistration({required this.email, required this.userId});
 
   final String email;
   final String userId;

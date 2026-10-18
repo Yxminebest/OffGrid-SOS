@@ -177,13 +177,13 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                 width: 94,
                 height: 94,
                 decoration: BoxDecoration(
-                  color: AppColors.info.withValues(alpha: .10),
+                  color: context.colors.info.withValues(alpha: .10),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.mark_email_read_outlined,
                   size: 50,
-                  color: AppColors.info,
+                  color: context.colors.info,
                 ),
               ),
             ),
@@ -194,10 +194,10 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
               style: TextStyle(fontSize: 27, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 12),
-            const Text(
+            Text(
               'เราได้ส่งลิงก์ยืนยันไปที่',
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.muted),
+              style: TextStyle(color: context.colors.muted),
             ),
             const SizedBox(height: 6),
             Text(
@@ -206,11 +206,11 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
               style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
             ),
             const SizedBox(height: 16),
-            const Text(
+            Text(
               'เปิดอีเมล → กดลิงก์ยืนยัน → '
               'กลับมาที่แอป แล้วกดตรวจสอบอีกครั้ง',
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.muted, height: 1.5),
+              style: TextStyle(color: context.colors.muted, height: 1.5),
             ),
             const SizedBox(height: 28),
             SizedBox(

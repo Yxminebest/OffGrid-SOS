@@ -102,6 +102,7 @@ export default {
         'avatars',
         'rescue-verification',
         'chat-media',
+        'nearby-archive',
       ]) {
         await removeUserFiles(
           ctx.supabaseAdmin.storage,

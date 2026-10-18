@@ -37,6 +37,10 @@
 	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>ถ่ายรูปเพื่อส่งในห้องแชทและแจ้งข้อมูลขอความช่วยเหลือ</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>เลือกรูปภาพและวิดีโอเพื่อส่งให้คู่สนทนา</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

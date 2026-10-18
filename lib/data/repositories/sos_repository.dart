@@ -8,8 +8,12 @@ import '../models/local_sos_record.dart';
 import 'sync_queue_repository.dart';
 
 class SosRepository {
-  final LocalDatabase _local = LocalDatabase.instance;
-  final SyncQueueRepository _queue = SyncQueueRepository();
+  SosRepository({LocalDatabase? local})
+    : _local = local ?? LocalDatabase.instance,
+      _queue = SyncQueueRepository(local: local);
+
+  final LocalDatabase _local;
+  final SyncQueueRepository _queue;
 
   Stream<List<LocalSosRecord>> watchForUser(String ownerLocalId) async* {
     final db = await _local.database;
@@ -60,7 +64,6 @@ class SosRepository {
     required String message,
     SavedLocation? location,
   }) async {
-    final db = await _local.database;
     final now = DateTime.now();
 
     final record = LocalSosRecord(
@@ -73,68 +76,78 @@ class SosRepository {
       latitude: location?.latitude,
       longitude: location?.longitude,
       accuracy: location?.accuracyMeters,
+      locationRecordedAt: location?.recordedAt,
+      isLastKnownLocation: location?.isLastKnown ?? false,
       createdAt: now,
       updatedAt: now,
-      syncState: user.isMember ? 'pending' : 'pending',
+      syncState: 'pending',
     );
 
-    await _local.sosStore.record(record.id).put(db, record.toLocalMap());
-
-    if (user.isMember) {
-      await _queue.enqueue(
-        entityType: 'sos',
-        entityId: record.id,
-        ownerLocalId: record.ownerLocalId,
-        operation: 'insert',
-      );
-    }
+    final db = await _local.database;
+    await db.transaction((txn) => _save(txn, record, 'insert'));
 
     return record;
   }
 
   Future<void> updateMessage(LocalSosRecord record, String message) async {
-    final db = await _local.database;
-    final updated = record.copyWith(
-      message: message.trim(),
-      syncState: record.ownerUserId == null ? 'pending' : 'pending',
-      clearLastError: true,
-      updatedAt: DateTime.now(),
+    await _mutate(
+      record.id,
+      (current) => current.copyWith(
+        message: message.trim(),
+        syncState: 'pending',
+        clearLastError: true,
+        updatedAt: DateTime.now(),
+      ),
     );
+  }
 
-    await _local.sosStore.record(record.id).put(db, updated.toLocalMap());
+  Future<void> stop(LocalSosRecord record) async {
+    final now = DateTime.now();
 
+    await _mutate(
+      record.id,
+      (current) => current.copyWith(
+        isActive: false,
+        endedAt: now,
+        syncState: 'pending',
+        clearLastError: true,
+        updatedAt: now,
+      ),
+    );
+  }
+
+  Future<void> _save(
+    Transaction txn,
+    LocalSosRecord record,
+    String operation,
+  ) async {
+    await _local.sosStore.record(record.id).put(txn, record.toLocalMap());
     if (record.ownerUserId != null) {
       await _queue.enqueue(
         entityType: 'sos',
         entityId: record.id,
         ownerLocalId: record.ownerLocalId,
-        operation: 'update',
+        operation: operation,
+        transaction: txn,
       );
     }
   }
 
-  Future<void> stop(LocalSosRecord record) async {
+  Future<void> _mutate(
+    String id,
+    LocalSosRecord Function(LocalSosRecord) change,
+  ) async {
     final db = await _local.database;
-    final now = DateTime.now();
-
-    final updated = record.copyWith(
-      isActive: false,
-      endedAt: now,
-      syncState: record.ownerUserId == null ? 'pending' : 'pending',
-      clearLastError: true,
-      updatedAt: now,
-    );
-
-    await _local.sosStore.record(record.id).put(db, updated.toLocalMap());
-
-    if (record.ownerUserId != null) {
-      await _queue.enqueue(
-        entityType: 'sos',
-        entityId: record.id,
-        ownerLocalId: record.ownerLocalId,
-        operation: 'update',
+    await db.transaction((txn) async {
+      final value = await _local.sosStore.record(id).get(txn);
+      if (value == null) return;
+      final current = LocalSosRecord.fromLocalMap(value);
+      await _save(
+        txn,
+        change(current).copyWith(revision: current.revision + 1),
+        'update',
       );
-    }
+    });
   }
 
   Future<LocalSosRecord?> findById(String id) async {
@@ -146,58 +159,23 @@ class SosRepository {
     return LocalSosRecord.fromLocalMap(Map<String, Object?>.from(map));
   }
 
-  Future<void> markSynced(String id) async {
-    final record = await findById(id);
-    if (record == null) return;
-
+  Future<List<LocalSosRecord>> recentForUser(String owner) async {
     final db = await _local.database;
-
-    await _local.sosStore
-        .record(id)
-        .put(
-          db,
-          record
-              .copyWith(syncState: 'synced', clearLastError: true)
-              .toLocalMap(),
-        );
-  }
-
-  Future<void> markError(String id, Object error) async {
-    final record = await findById(id);
-    if (record == null) return;
-
-    final db = await _local.database;
-
-    await _local.sosStore
-        .record(id)
-        .put(
-          db,
-          record
-              .copyWith(syncState: 'error', lastError: error.toString())
-              .toLocalMap(),
-        );
+    final rows = await _local.sosStore.find(
+      db,
+      finder: Finder(
+        filter: Filter.equals('owner_local_id', owner),
+        sortOrders: [SortOrder('updated_at', false)],
+        limit: 100,
+      ),
+    );
+    return rows.map((row) => LocalSosRecord.fromLocalMap(row.value)).toList();
   }
 
   Future<void> retry(String id) async {
-    final record = await findById(id);
-    if (record == null || record.ownerUserId == null) return;
-
-    final db = await _local.database;
-
-    await _local.sosStore
-        .record(id)
-        .put(
-          db,
-          record
-              .copyWith(syncState: 'pending', clearLastError: true)
-              .toLocalMap(),
-        );
-
-    await _queue.enqueue(
-      entityType: 'sos',
-      entityId: id,
-      ownerLocalId: record.ownerLocalId,
-      operation: 'update',
+    await _mutate(
+      id,
+      (record) => record.copyWith(syncState: 'pending', clearLastError: true),
     );
   }
 }

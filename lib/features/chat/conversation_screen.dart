@@ -1,6 +1,8 @@
 import 'dart:async';
-
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
+import '../../widgets/cloud_media_card.dart';
+import '../../widgets/location_actions.dart';
+import '../../features/nearby/nearby_screen.dart';
 
 import 'package:file_picker/file_picker.dart';
 
@@ -25,6 +27,11 @@ import '../../services/chat_service.dart';
 import '../../services/location_service.dart';
 
 import '../../services/sync_service.dart';
+import '../../services/nearby_mesh_service.dart';
+import '../../services/network_service.dart';
+import '../../services/app_notifications.dart';
+import '../../services/chat_camera_service.dart';
+import 'nearby_conversation_screen.dart';
 
 class ConversationScreen extends StatefulWidget {
   const ConversationScreen({
@@ -57,12 +64,16 @@ class _ConversationScreenState extends State<ConversationScreen> {
   Timer? _typingDebounce;
 
   bool _sending = false;
+  bool _cloudUnavailable = false;
+  String? _nearbyPeerId;
+  String? _nearbyPeerName;
 
   LocalMessageRecord? _replyingTo;
 
   @override
   void initState() {
     super.initState();
+    AppNotifications.instance.activeThread = widget.conversation.id;
 
     if (widget.me.isMember) {
       _cloudSubscription = ChatService.instance.subscribeMessages(
@@ -70,12 +81,16 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
         conversation: widget.conversation,
 
+        onReady: () {
+          if (mounted && _cloudUnavailable) {
+            setState(() => _cloudUnavailable = false);
+          }
+        },
         onError: (error) {
           if (!mounted) return;
 
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('Realtime chat: $error')));
+          // Offline chat is routed to a paired Nearby peer below.
+          setState(() => _cloudUnavailable = true);
         },
       );
 
@@ -85,6 +100,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   @override
   void dispose() {
+    if (AppNotifications.instance.activeThread == widget.conversation.id) {
+      AppNotifications.instance.activeThread = null;
+    }
     _typingDebounce?.cancel();
 
     _cloudSubscription?.cancel();
@@ -259,7 +277,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
         type: 'location',
 
-        content: 'ตำแหน่งของฉัน',
+        content: position.isLastKnown
+            ? 'ตำแหน่งล่าสุด (ไม่ใช่พิกัดปัจจุบัน) เวลา ${position.recordedAt.toLocal()}'
+            : 'ตำแหน่งของฉัน',
 
         latitude: position.latitude,
 
@@ -282,7 +302,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     await showModalBottomSheet<void>(
       context: context,
 
-      backgroundColor: AppColors.surface,
+      backgroundColor: context.colors.surface,
 
       builder: (context) => SafeArea(
         child: Padding(
@@ -292,6 +312,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
             runSpacing: 8,
 
             children: [
+              _attachmentTile(Icons.photo_camera_outlined, 'ถ่ายรูป', () {
+                Navigator.pop(context);
+                unawaited(_takePhoto());
+              }),
               _attachmentTile(Icons.image_outlined, 'รูปภาพ', () {
                 Navigator.pop(context);
 
@@ -328,12 +352,26 @@ class _ConversationScreenState extends State<ConversationScreen> {
     );
   }
 
+  Future<void> _takePhoto() async {
+    try {
+      await ChatCameraService.instance.capture(
+        widget.me,
+        conversationId: widget.conversation.id,
+      );
+    } catch (_) {
+      _show(
+        'ถ่ายรูปหรือบันทึกรูปไม่ได้ กรุณาตรวจสิทธิ์กล้องและลองอีกครั้ง',
+        error: true,
+      );
+    }
+  }
+
   Widget _attachmentTile(IconData icon, String label, VoidCallback onTap) {
     return SizedBox(
       width: MediaQuery.sizeOf(context).width / 2 - 20,
 
       child: ListTile(
-        leading: Icon(icon, color: AppColors.info),
+        leading: Icon(icon, color: context.colors.info),
 
         title: Text(label),
 
@@ -348,7 +386,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     final action = await showModalBottomSheet<String>(
       context: context,
 
-      backgroundColor: AppColors.surface,
+      backgroundColor: context.colors.surface,
 
       builder: (context) => SafeArea(
         child: Column(
@@ -527,7 +565,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
           ),
 
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
 
             onPressed: () => Navigator.pop(context, true),
 
@@ -577,7 +618,37 @@ class _ConversationScreenState extends State<ConversationScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: Listenable.merge([
+      NetworkService.instance.online,
+      NearbyMeshService.instance,
+    ]),
+    builder: (context, _) {
+      final peer = NearbyMeshService.instance.peerForUser(
+        widget.conversation.peerUserId,
+      );
+      if ((!NetworkService.instance.online.value || _cloudUnavailable) &&
+          peer != null) {
+        _nearbyPeerId ??= peer.deviceId;
+        _nearbyPeerName ??= peer.name;
+      }
+      if (_nearbyPeerId != null) {
+        return NearbyConversationScreen(
+          me: widget.me,
+          peerId: _nearbyPeerId!,
+          name: _nearbyPeerName ?? widget.conversation.displayName,
+          initialDraft: _text.text,
+        );
+      }
+      return _buildCloud(context);
+    },
+  );
+
+  Widget _buildCloud(BuildContext context) {
+    final peer = NearbyMeshService.instance.peerForUser(
+      widget.conversation.peerUserId,
+    );
+    AppNotifications.instance.activeThread = widget.conversation.id;
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
@@ -600,7 +671,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
                   ),
 
                   StreamBuilder<List<Map<String, dynamic>>>(
-                    stream: widget.me.isMember
+                    stream:
+                        widget.me.isMember &&
+                            NetworkService.instance.online.value
                         ? ChatService.instance.typingStream(
                             widget.conversation.id,
                           )
@@ -625,12 +698,19 @@ class _ConversationScreenState extends State<ConversationScreen> {
                           });
 
                       return Text(
-                        typing ? 'กำลังพิมพ์…' : 'แชทส่วนตัว',
+                        typing
+                            ? 'กำลังพิมพ์…'
+                            : NetworkService.instance.online.value &&
+                                  !_cloudUnavailable
+                            ? 'Cloud · ซิงก์ผ่านอินเทอร์เน็ต'
+                            : 'Cloud · รออินเทอร์เน็ต',
 
                         style: TextStyle(
                           fontSize: 11,
 
-                          color: typing ? AppColors.info : AppColors.muted,
+                          color: typing
+                              ? context.colors.info
+                              : context.colors.muted,
                         ),
                       );
                     },
@@ -642,6 +722,15 @@ class _ConversationScreenState extends State<ConversationScreen> {
         ),
 
         actions: [
+          if (peer != null)
+            IconButton(
+              tooltip: 'แชทผ่าน Nearby โดยไม่ใช้อินเทอร์เน็ต',
+              onPressed: () => setState(() {
+                _nearbyPeerId = peer.deviceId;
+                _nearbyPeerName = peer.name;
+              }),
+              icon: const Icon(Icons.bluetooth_connected_rounded),
+            ),
           ValueListenableBuilder<SyncSnapshot>(
             valueListenable: SyncService.instance.status,
 
@@ -667,6 +756,45 @@ class _ConversationScreenState extends State<ConversationScreen> {
       body: SafeArea(
         child: Column(
           children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: context.colors.surfaceSoft,
+              child: Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                children: [
+                  const Text(
+                    'ห้องนี้ใช้คลาวด์ ไม่ได้ส่งผ่าน Bluetooth',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  TextButton.icon(
+                    icon: const Icon(
+                      Icons.bluetooth_connected_rounded,
+                      size: 18,
+                    ),
+                    label: Text(
+                      peer == null ? 'เชื่อมต่อ Nearby' : 'ใช้ Nearby',
+                    ),
+                    onPressed: () async {
+                      if (peer != null) {
+                        setState(() {
+                          _nearbyPeerId = peer.deviceId;
+                          _nearbyPeerName = peer.name;
+                        });
+                      } else {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                            builder: (_) => NearbyScreen(me: widget.me),
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
             Expanded(child: _messageArea()),
 
             if (_replyingTo != null) _replyPreview(),
@@ -680,7 +808,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   Widget _messageArea() {
     return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: widget.me.isMember
+      stream: widget.me.isMember && NetworkService.instance.online.value
           ? ChatService.instance.reactionStream(widget.conversation.id)
           : Stream<List<Map<String, dynamic>>>.empty(),
 
@@ -688,7 +816,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
         final reactions = _groupReactions(reactionSnapshot.data ?? const []);
 
         return StreamBuilder<List<Map<String, dynamic>>>(
-          stream: widget.me.isMember
+          stream: widget.me.isMember && NetworkService.instance.online.value
               ? ChatService.instance.memberStateStream(widget.conversation.id)
               : Stream<List<Map<String, dynamic>>>.empty(),
 
@@ -718,7 +846,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 }
 
                 if (items.isEmpty) {
-                  return const Center(
+                  return Center(
                     child: Padding(
                       padding: EdgeInsets.all(28),
 
@@ -727,7 +855,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
                         textAlign: TextAlign.center,
 
-                        style: TextStyle(color: AppColors.muted, height: 1.5),
+                        style: TextStyle(
+                          color: context.colors.muted,
+                          height: 1.5,
+                        ),
                       ),
                     ),
                   );
@@ -817,16 +948,16 @@ class _ConversationScreenState extends State<ConversationScreen> {
       padding: const EdgeInsets.all(10),
 
       decoration: BoxDecoration(
-        color: AppColors.surfaceSoft,
+        color: context.colors.surfaceSoft,
 
         borderRadius: BorderRadius.circular(12),
 
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: context.colors.border),
       ),
 
       child: Row(
         children: [
-          const Icon(Icons.reply_rounded, color: AppColors.info),
+          Icon(Icons.reply_rounded, color: context.colors.info),
 
           const SizedBox(width: 8),
 
@@ -918,19 +1049,44 @@ class _ConversationScreenState extends State<ConversationScreen> {
     if (message.messageType == 'location' &&
         message.latitude != null &&
         message.longitude != null) {
-      final uri = Uri.parse(
-        'https://www.google.com/maps/search/?api=1&query=${message.latitude},${message.longitude}',
+      await LocationActions.show(
+        context,
+        message.latitude!,
+        message.longitude!,
       );
 
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      return;
+    }
 
+    if (!kIsWeb &&
+        (message.messageType == 'image' || message.messageType == 'video')) {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('ไฟล์ในห้องแชท'),
+          content: SingleChildScrollView(
+            child: CloudMediaCard(message: message),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('ปิด'),
+            ),
+          ],
+        ),
+      );
       return;
     }
 
     final url = await ChatService.instance.signedMediaUrl(message.mediaPath);
 
     if (url == null) {
-      _show('ไฟล์ยังรออัปโหลดหรือไม่สามารถเปิดได้', error: true);
+      _show(
+        message.mediaPath == null
+            ? 'ไฟล์ยังรออัปโหลดขึ้นคลาวด์'
+            : 'เชื่อมต่อคลาวด์เพื่อเปิดไฟล์ไม่สำเร็จ กรุณาลองใหม่เมื่อมีอินเทอร์เน็ต',
+        error: true,
+      );
 
       return;
     }
@@ -1098,15 +1254,15 @@ class _MessageBubble extends StatelessWidget {
 
           decoration: BoxDecoration(
             color: mine
-                ? AppColors.info.withValues(alpha: .17)
-                : AppColors.surfaceSoft,
+                ? context.colors.surfaceSoft
+                : context.colors.surfaceSoft,
 
             borderRadius: BorderRadius.circular(16),
 
             border: Border.all(
               color: mine
-                  ? AppColors.info.withValues(alpha: .32)
-                  : AppColors.border,
+                  ? context.colors.info.withValues(alpha: .32)
+                  : context.colors.border,
             ),
           ),
 
@@ -1123,8 +1279,8 @@ class _MessageBubble extends StatelessWidget {
                   child: Text(
                     message.senderName,
 
-                    style: const TextStyle(
-                      color: AppColors.info,
+                    style: TextStyle(
+                      color: context.colors.info,
 
                       fontSize: 11,
 
@@ -1142,12 +1298,12 @@ class _MessageBubble extends StatelessWidget {
                   padding: const EdgeInsets.all(7),
 
                   decoration: BoxDecoration(
-                    color: AppColors.background.withValues(alpha: .35),
+                    color: context.colors.background.withValues(alpha: .35),
 
                     borderRadius: BorderRadius.circular(8),
 
-                    border: const Border(
-                      left: BorderSide(color: AppColors.info, width: 3),
+                    border: Border(
+                      left: BorderSide(color: context.colors.info, width: 3),
                     ),
                   ),
 
@@ -1160,11 +1316,7 @@ class _MessageBubble extends StatelessWidget {
 
                     overflow: TextOverflow.ellipsis,
 
-                    style: const TextStyle(
-                      fontSize: 11,
-
-                      color: AppColors.muted,
-                    ),
+                    style: TextStyle(fontSize: 11, color: context.colors.muted),
                   ),
                 ),
               ],
@@ -1175,6 +1327,10 @@ class _MessageBubble extends StatelessWidget {
 
                   child: Text(message.content),
                 )
+              else if (!kIsWeb &&
+                  (message.messageType == 'image' ||
+                      message.messageType == 'video'))
+                CloudMediaCard(key: ValueKey(message.id), message: message)
               else if (message.messageType == 'image')
                 _imageContent()
               else if (message.messageType == 'video')
@@ -1199,7 +1355,7 @@ class _MessageBubble extends StatelessWidget {
                         Icon(
                           _typeIcon(message.messageType),
 
-                          color: AppColors.info,
+                          color: context.colors.info,
                         ),
 
                         const SizedBox(width: 8),
@@ -1226,7 +1382,9 @@ class _MessageBubble extends StatelessWidget {
                           ),
 
                           decoration: BoxDecoration(
-                            color: AppColors.background.withValues(alpha: .45),
+                            color: context.colors.background.withValues(
+                              alpha: .45,
+                            ),
 
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -1240,21 +1398,25 @@ class _MessageBubble extends StatelessWidget {
 
               const SizedBox(height: 4),
 
-              Row(
-                mainAxisSize: MainAxisSize.min,
-
+              Wrap(
+                alignment: WrapAlignment.end,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 5,
                 children: [
                   if (message.editedAt != null)
-                    const Text(
+                    Text(
                       'แก้ไขแล้ว • ',
 
-                      style: TextStyle(fontSize: 9, color: AppColors.muted),
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: context.colors.muted,
+                      ),
                     ),
 
                   Text(
                     _hhmm(message.createdAt),
 
-                    style: const TextStyle(fontSize: 9, color: AppColors.muted),
+                    style: TextStyle(fontSize: 9, color: context.colors.muted),
                   ),
 
                   if (mine) ...[
@@ -1277,13 +1439,17 @@ class _MessageBubble extends StatelessWidget {
                         read
                             ? 'อ่านแล้ว'
                             : message.syncState == 'synced'
-                            ? 'ส่งแล้ว'
-                            : message.syncState,
+                            ? 'ซิงก์คลาวด์แล้ว'
+                            : message.syncState == 'pending'
+                            ? 'รอซิงก์คลาวด์'
+                            : 'ซิงก์ไม่สำเร็จ',
 
                         style: TextStyle(
                           fontSize: 9,
 
-                          color: read ? AppColors.info : AppColors.muted,
+                          color: read
+                              ? context.colors.info
+                              : context.colors.muted,
 
                           fontWeight: FontWeight.w700,
                         ),
@@ -1563,12 +1729,12 @@ class _InlineVideoContentState extends State<_InlineVideoContent> {
             mainAxisAlignment: MainAxisAlignment.center,
 
             children: [
-              const Icon(
+              Icon(
                 Icons.videocam_outlined,
 
                 size: 38,
 
-                color: AppColors.info,
+                color: context.colors.info,
               ),
 
               const SizedBox(height: 6),
@@ -1580,15 +1746,15 @@ class _InlineVideoContentState extends State<_InlineVideoContent> {
 
                 textAlign: TextAlign.center,
 
-                style: const TextStyle(color: AppColors.muted, fontSize: 11),
+                style: TextStyle(color: context.colors.muted, fontSize: 11),
               ),
 
               const SizedBox(height: 4),
 
-              const Text(
+              Text(
                 'Tap to open externally',
 
-                style: TextStyle(color: AppColors.info, fontSize: 10),
+                style: TextStyle(color: context.colors.info, fontSize: 10),
               ),
             ],
           ),
@@ -1840,7 +2006,7 @@ class _PeerAvatar extends StatelessWidget {
     return CircleAvatar(
       radius: 18,
 
-      backgroundColor: AppColors.surfaceSoft,
+      backgroundColor: context.colors.surfaceSoft,
 
       child: Text(initial, style: const TextStyle(fontWeight: FontWeight.w800)),
     );

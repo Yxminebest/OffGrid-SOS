@@ -56,3 +56,11 @@ apply_inline_video*.ps1
 .env
 .env.*
 !.env.example
+
+# Local tooling state and private signing material
+/supabase/.temp/
+/location_crash_log.txt
+*.jks
+*.keystore
+*.p12
+key.properties

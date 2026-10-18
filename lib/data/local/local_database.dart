@@ -6,6 +6,9 @@ import 'database_factory.dart';
 class LocalDatabase {
   LocalDatabase._();
 
+  /// Allows repositories to share an isolated database in tests.
+  LocalDatabase.withDatabase(Database database) : _database = database;
+
   static final LocalDatabase instance = LocalDatabase._();
 
   final StoreRef<String, Map<String, Object?>> sosStore = stringMapStoreFactory
@@ -24,9 +27,16 @@ class LocalDatabase {
       .store('local_meta');
 
   Database? _database;
+  Future<Database>? _opening;
 
   Future<Database> get database async {
-    return _database ??= await openOffgridDatabase();
+    if (_database != null) return _database!;
+    try {
+      return _database = await (_opening ??= openOffgridDatabase());
+    } catch (_) {
+      _opening = null;
+      rethrow;
+    }
   }
 
   Future<String> conversationIdFor(String ownerId) async {
@@ -56,7 +66,6 @@ class LocalDatabase {
     return syncQueueStore.count(db);
   }
 
-
   Future<void> clearOwnerData(String ownerId) async {
     final db = await database;
 
@@ -70,6 +79,13 @@ class LocalDatabase {
       await conversationStore.delete(txn, finder: ownerFilter);
       await syncQueueStore.delete(txn, finder: ownerFilter);
 
+      final nearbyOwner = Finder(filter: Filter.equals('owner', ownerId));
+      await stringMapStoreFactory
+          .store('nearby_messages')
+          .delete(txn, finder: nearbyOwner);
+      await stringMapStoreFactory
+          .store('nearby_sos_states')
+          .delete(txn, finder: nearbyOwner);
       await metaStore.delete(
         txn,
         finder: Finder(filter: Filter.equals('owner_id', ownerId)),

@@ -99,10 +99,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 28, 20, 36),
           children: [
-            const Icon(
+            Icon(
               Icons.lock_reset_rounded,
               size: 68,
-              color: AppColors.info,
+              color: context.colors.info,
             ),
             const SizedBox(height: 18),
             const Text(
@@ -111,10 +111,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 10),
-            const Text(
+            Text(
               'กรอกอีเมลที่ใช้สมัคร ระบบจะส่งลิงก์สำหรับตั้งรหัสผ่านใหม่ให้',
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.muted, height: 1.45),
+              style: TextStyle(color: context.colors.muted, height: 1.45),
             ),
             const SizedBox(height: 24),
             TextField(
@@ -136,10 +136,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: AppColors.success.withValues(alpha: .10),
+                  color: context.colors.success.withValues(alpha: .10),
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(
-                    color: AppColors.success.withValues(alpha: .35),
+                    color: context.colors.success.withValues(alpha: .35),
                   ),
                 ),
                 child: const Text(
@@ -170,11 +170,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            const Text(
+            Text(
               'เพื่อความเป็นส่วนตัว ระบบจะไม่บอกว่าอีเมลนี้มีบัญชีอยู่หรือไม่',
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: AppColors.muted,
+                color: context.colors.muted,
                 fontSize: 12,
                 height: 1.4,
               ),

@@ -7,8 +7,12 @@ import '../models/local_message_record.dart';
 import 'sync_queue_repository.dart';
 
 class MessageRepository {
-  final LocalDatabase _local = LocalDatabase.instance;
-  final SyncQueueRepository _queue = SyncQueueRepository();
+  MessageRepository({LocalDatabase? local})
+    : _local = local ?? LocalDatabase.instance,
+      _queue = SyncQueueRepository(local: local);
+
+  final LocalDatabase _local;
+  final SyncQueueRepository _queue;
 
   Stream<List<LocalMessageRecord>> watchConversation({
     required String ownerLocalId,
@@ -26,7 +30,9 @@ class MessageRepository {
       ),
     );
 
-    yield* query.onSnapshots(db).map(
+    yield* query
+        .onSnapshots(db)
+        .map(
           (items) => items
               .map(
                 (item) => LocalMessageRecord.fromLocalMap(
@@ -40,6 +46,7 @@ class MessageRepository {
   Future<LocalMessageRecord> create({
     required AppUser user,
     required String conversationId,
+    String? messageId,
     String content = '',
     String type = 'text',
     String? replyToId,
@@ -54,7 +61,7 @@ class MessageRepository {
     final now = DateTime.now();
 
     final record = LocalMessageRecord(
-      id: const Uuid().v4(),
+      id: messageId ?? const Uuid().v4(),
       ownerLocalId: user.id,
       senderUserId: user.isMember ? user.id : null,
       conversationId: conversationId,
@@ -74,62 +81,78 @@ class MessageRepository {
       syncState: user.isMember ? 'pending' : 'synced',
     );
 
-    await _local.messageStore.record(record.id).put(db, record.toLocalMap());
-
-    if (user.isMember) {
-      await _queue.enqueue(
-        entityType: 'message',
-        entityId: record.id,
-        ownerLocalId: record.ownerLocalId,
-        operation: 'insert',
-      );
-    }
-
-    return record;
+    return db.transaction((txn) async {
+      final old = await _local.messageStore.record(record.id).get(txn);
+      if (old != null) {
+        final existing = LocalMessageRecord.fromLocalMap(old);
+        if (existing.ownerLocalId != user.id ||
+            existing.conversationId != conversationId) {
+          throw StateError('Message destination mismatch');
+        }
+        return existing;
+      }
+      await _save(txn, record, 'insert');
+      return record;
+    });
   }
 
   Future<void> updateText(LocalMessageRecord record, String content) async {
-    final db = await _local.database;
     final now = DateTime.now();
-    final updated = record.copyWith(
-      content: content.trim(),
-      syncState: 'pending',
-      clearLastError: true,
-      editedAt: now,
-      updatedAt: now,
+    await _mutate(
+      record.id,
+      (current) => current.copyWith(
+        content: content.trim(),
+        syncState: 'pending',
+        clearLastError: true,
+        editedAt: now,
+        updatedAt: now,
+      ),
     );
+  }
 
-    await _local.messageStore.record(record.id).put(db, updated.toLocalMap());
+  Future<void> delete(LocalMessageRecord record) async {
+    await _mutate(
+      record.id,
+      (current) => current.copyWith(
+        isDeleted: true,
+        syncState: 'pending',
+        clearLastError: true,
+        updatedAt: DateTime.now(),
+      ),
+    );
+  }
 
+  Future<void> _save(
+    Transaction txn,
+    LocalMessageRecord record,
+    String operation,
+  ) async {
+    await _local.messageStore.record(record.id).put(txn, record.toLocalMap());
     if (record.senderUserId != null) {
       await _queue.enqueue(
         entityType: 'message',
         entityId: record.id,
         ownerLocalId: record.ownerLocalId,
-        operation: 'update',
+        operation: record.isDeleted ? 'delete' : operation,
+        transaction: txn,
       );
     }
   }
 
-  Future<void> delete(LocalMessageRecord record) async {
+  Future<void> _mutate(
+    String id,
+    LocalMessageRecord Function(LocalMessageRecord) change,
+  ) async {
     final db = await _local.database;
-    final updated = record.copyWith(
-      isDeleted: true,
-      syncState: 'pending',
-      clearLastError: true,
-      updatedAt: DateTime.now(),
-    );
-
-    await _local.messageStore.record(record.id).put(db, updated.toLocalMap());
-
-    if (record.senderUserId != null) {
-      await _queue.enqueue(
-        entityType: 'message',
-        entityId: record.id,
-        ownerLocalId: record.ownerLocalId,
-        operation: 'delete',
+    await db.transaction((txn) async {
+      final value = await _local.messageStore.record(id).get(txn);
+      if (value == null) return;
+      await _save(
+        txn,
+        change(LocalMessageRecord.fromLocalMap(value)),
+        'update',
       );
-    }
+    });
   }
 
   Future<LocalMessageRecord?> findById(String id) async {
@@ -146,22 +169,22 @@ class MessageRepository {
   }) async {
     final db = await _local.database;
     final id = cloud['id'].toString();
-    final existing = await findById(id);
-
-    // Never overwrite an unsynced local edit with an older cloud snapshot.
-    if (existing != null && existing.syncState != 'synced') return;
-
-    if (cloud['is_deleted'] == true) {
-      await _local.messageStore.record(id).delete(db);
-      return;
-    }
-
-    final record = LocalMessageRecord.fromCloudMap(
-      map: cloud,
-      ownerLocalId: ownerLocalId,
-      senderName: senderName,
-    );
-    await _local.messageStore.record(id).put(db, record.toLocalMap());
+    await db.transaction((txn) async {
+      final ref = _local.messageStore.record(id);
+      final existing = await ref.get(txn);
+      // Check and write atomically with respect to local edits and uploads.
+      if (existing != null && existing['sync_state'] != 'synced') return;
+      if (cloud['is_deleted'] == true) {
+        await ref.delete(txn);
+        return;
+      }
+      final record = LocalMessageRecord.fromCloudMap(
+        map: cloud,
+        ownerLocalId: ownerLocalId,
+        senderName: senderName,
+      );
+      await ref.put(txn, record.toLocalMap());
+    });
   }
 
   Future<void> reconcileCloud({
@@ -184,86 +207,46 @@ class MessageRepository {
     }
 
     final db = await _local.database;
-    final local = await _local.messageStore.find(
-      db,
-      finder: Finder(
-        filter: Filter.and([
-          Filter.equals('owner_local_id', ownerLocalId),
-          Filter.equals('conversation_id', conversationId),
-        ]),
-      ),
-    );
-
-    for (final row in local) {
-      final record = LocalMessageRecord.fromLocalMap(
-        Map<String, Object?>.from(row.value),
+    await db.transaction((txn) async {
+      final local = await _local.messageStore.find(
+        txn,
+        finder: Finder(
+          filter: Filter.and([
+            Filter.equals('owner_local_id', ownerLocalId),
+            Filter.equals('conversation_id', conversationId),
+          ]),
+        ),
       );
-      if (record.syncState == 'synced' && !cloudIds.contains(record.id)) {
-        await _local.messageStore.record(record.id).delete(db);
+
+      for (final row in local) {
+        final record = LocalMessageRecord.fromLocalMap(
+          Map<String, Object?>.from(row.value),
+        );
+        if (record.syncState == 'synced' && !cloudIds.contains(record.id)) {
+          await _local.messageStore.record(record.id).delete(txn);
+        }
       }
-    }
+    });
   }
 
   Future<void> attachUploadedMedia({
     required String id,
     required String mediaPath,
   }) async {
-    final record = await findById(id);
-    if (record == null) return;
     final db = await _local.database;
-    await _local.messageStore.record(id).put(
-          db,
-          record
-              .copyWith(mediaPath: mediaPath, clearMediaBytes: true)
-              .toLocalMap(),
-        );
-  }
-
-  Future<void> markSynced(String id) async {
-    final record = await findById(id);
-    if (record == null) return;
-    final db = await _local.database;
-
-    if (record.isDeleted) {
-      await _local.messageStore.record(id).delete(db);
-      return;
-    }
-
-    await _local.messageStore.record(id).put(
-          db,
-          record
-              .copyWith(syncState: 'synced', clearLastError: true)
-              .toLocalMap(),
-        );
-  }
-
-  Future<void> markError(String id, Object error) async {
-    final record = await findById(id);
-    if (record == null) return;
-    final db = await _local.database;
-    await _local.messageStore.record(id).put(
-          db,
-          record
-              .copyWith(syncState: 'error', lastError: error.toString())
-              .toLocalMap(),
-        );
+    await db.transaction((txn) async {
+      // Merge upload metadata into the latest row, retaining edits/deletions.
+      await _local.messageStore.record(id).update(txn, {
+        'media_path': mediaPath,
+        'media_bytes': null,
+      });
+    });
   }
 
   Future<void> retry(String id) async {
-    final record = await findById(id);
-    if (record == null || record.senderUserId == null) return;
-    final db = await _local.database;
-    await _local.messageStore.record(id).put(
-          db,
-          record
-              .copyWith(syncState: 'pending', clearLastError: true)
-              .toLocalMap(),
-        );
-    await _queue.enqueue(
-      entityType: 'message',
-      entityId: id,
-      ownerLocalId: record.ownerLocalId,
-      operation: record.isDeleted ? 'delete' : 'update',
+    await _mutate(
+      id,
+      (record) => record.copyWith(syncState: 'pending', clearLastError: true),
     );
   }
 }

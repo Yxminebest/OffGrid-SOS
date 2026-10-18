@@ -162,10 +162,10 @@ class _RescueVerificationScreenState extends State<RescueVerificationScreen> {
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            const Icon(
+            Icon(
               Icons.health_and_safety_outlined,
               size: 64,
-              color: AppColors.info,
+              color: context.colors.info,
             ),
             const SizedBox(height: 14),
             const Text(
@@ -174,11 +174,11 @@ class _RescueVerificationScreenState extends State<RescueVerificationScreen> {
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               'เฉพาะเจ้าหน้าที่หรือหน่วยกู้ภัยที่ Admin ตรวจสอบและอนุมัติแล้ว '
               'จึงจะเปิด RESCUE MODE ได้',
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.muted, height: 1.5),
+              style: TextStyle(color: context.colors.muted, height: 1.5),
             ),
             if (status != null) ...[
               const SizedBox(height: 18),
@@ -214,9 +214,9 @@ class _RescueVerificationScreenState extends State<RescueVerificationScreen> {
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: AppColors.surface,
+                color: context.colors.surface,
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.border),
+                border: Border.all(color: context.colors.border),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -226,9 +226,9 @@ class _RescueVerificationScreenState extends State<RescueVerificationScreen> {
                     style: TextStyle(fontWeight: FontWeight.w900),
                   ),
                   const SizedBox(height: 5),
-                  const Text(
+                  Text(
                     'รองรับ JPG, PNG หรือ PDF ขนาดไม่เกิน 10 MB',
-                    style: TextStyle(color: AppColors.muted, fontSize: 12),
+                    style: TextStyle(color: context.colors.muted, fontSize: 12),
                   ),
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
@@ -242,9 +242,9 @@ class _RescueVerificationScreenState extends State<RescueVerificationScreen> {
                     const SizedBox(height: 10),
                     Row(
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.description_outlined,
-                          color: AppColors.info,
+                          color: context.colors.info,
                         ),
                         const SizedBox(width: 8),
                         Expanded(
@@ -316,9 +316,9 @@ class _StatusCard extends StatelessWidget {
     };
 
     final color = switch (status) {
-      'approved' => Colors.green,
+      'approved' => context.colors.success,
       'rejected' => AppColors.error,
-      _ => AppColors.info,
+      _ => context.colors.info,
     };
 
     return Container(
@@ -342,9 +342,9 @@ class _StatusCard extends StatelessWidget {
                   style: TextStyle(color: color, fontWeight: FontWeight.w900),
                 ),
                 if (status == 'pending')
-                  const Text(
+                  Text(
                     'Admin จะตรวจสอบข้อมูลและเอกสารก่อนให้สิทธิ์ RESCUE MODE',
-                    style: TextStyle(color: AppColors.muted, fontSize: 12),
+                    style: TextStyle(color: context.colors.muted, fontSize: 12),
                   ),
                 if (status == 'rejected' &&
                     rejectionReason != null &&
@@ -352,10 +352,7 @@ class _StatusCard extends StatelessWidget {
                   const SizedBox(height: 4),
                   Text(
                     'เหตุผล: $rejectionReason',
-                    style: const TextStyle(
-                      color: AppColors.muted,
-                      fontSize: 12,
-                    ),
+                    style: TextStyle(color: context.colors.muted, fontSize: 12),
                   ),
                 ],
               ],

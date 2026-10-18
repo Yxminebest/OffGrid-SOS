@@ -1,0 +1,1167 @@
+{
+  "functions": [
+    {
+      "schema": "public",
+      "name": "revoke_rescuer",
+      "args": "p_user_id uuid",
+      "definition": "CREATE OR REPLACE FUNCTION public.revoke_rescuer(p_user_id uuid)\n RETURNS void\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO ''\nAS $function$\r\nbegin\r\n\r\n  if not private.is_admin() then\r\n    raise exception 'admin role required';\r\n  end if;\r\n\r\n  update public.user_roles\r\n  set\r\n    role = 'user'::public.app_role,\r\n    assigned_at = now(),\r\n    assigned_by = (select auth.uid())\r\n  where user_id = p_user_id\r\n    and role = 'rescuer'::public.app_role;\r\n\r\nend;\r\n$function$\n",
+      "acl": [
+        "postgres=X/postgres",
+        "authenticated=X/postgres"
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "notify_new_message",
+      "args": "",
+      "definition": "CREATE OR REPLACE FUNCTION public.notify_new_message()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO ''\nAS $function$\r\nbegin\r\n\r\n  insert into public.notifications (\r\n    user_id,\r\n    type,\r\n    title,\r\n    body,\r\n    reference_type,\r\n    reference_id\r\n  )\r\n  select\r\n    cm.user_id,\r\n    'message',\r\n    'ข้อความใหม่',\r\n    case\r\n      when new.type = 'text' then left(coalesce(new.content, ''), 120)\r\n      else 'ได้รับ ' || new.type\r\n    end,\r\n    'message',\r\n    new.id\r\n  from public.conversation_members cm\r\n  where cm.conversation_id = new.conversation_id\r\n    and cm.user_id <> new.sender_id;\r\n\r\n  return new;\r\nend;\r\n$function$\n",
+      "acl": null
+    },
+    {
+      "schema": "public",
+      "name": "notify_new_sos",
+      "args": "",
+      "definition": "CREATE OR REPLACE FUNCTION public.notify_new_sos()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO ''\nAS $function$\r\nbegin\r\n\r\n  insert into public.notifications (\r\n    user_id,\r\n    type,\r\n    title,\r\n    body,\r\n    reference_type,\r\n    reference_id\r\n  )\r\n  select\r\n    ur.user_id,\r\n    'sos',\r\n    'SOS ใหม่',\r\n    coalesce(new.message, 'มีผู้ขอความช่วยเหลือ'),\r\n    'sos',\r\n    new.id\r\n  from public.user_roles ur\r\n  where ur.role in (\r\n    'rescuer'::public.app_role,\r\n    'admin'::public.app_role\r\n  )\r\n  and ur.user_id <> new.owner_id;\r\n\r\n  return new;\r\nend;\r\n$function$\n",
+      "acl": null
+    },
+    {
+      "schema": "public",
+      "name": "notify_sos_response",
+      "args": "",
+      "definition": "CREATE OR REPLACE FUNCTION public.notify_sos_response()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO ''\nAS $function$\r\ndeclare\r\n  sos_owner uuid;\r\nbegin\r\n\r\n  if new.status not in ('responding', 'resolved') then\r\n    return new;\r\n  end if;\r\n\r\n  select s.owner_id\r\n  into sos_owner\r\n  from public.sos_events s\r\n  where s.id = new.sos_id;\r\n\r\n  if sos_owner is not null\r\n     and sos_owner <> new.responder_id then\r\n\r\n    insert into public.notifications (\r\n      user_id,\r\n      type,\r\n      title,\r\n      body,\r\n      reference_type,\r\n      reference_id\r\n    )\r\n    values (\r\n      sos_owner,\r\n      'rescue',\r\n      case\r\n        when new.status = 'responding'\r\n          then 'หน่วยกู้ภัยกำลังตอบรับ'\r\n        else 'SOS ได้รับการแก้ไขแล้ว'\r\n      end,\r\n      new.note,\r\n      'sos',\r\n      new.sos_id\r\n    );\r\n\r\n  end if;\r\n\r\n  return new;\r\nend;\r\n$function$\n",
+      "acl": null
+    },
+    {
+      "schema": "private",
+      "name": "is_admin",
+      "args": "",
+      "definition": "CREATE OR REPLACE FUNCTION private.is_admin()\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO ''\nAS $function$\r\n  select exists (\r\n    select 1\r\n    from public.user_roles ur\r\n    where ur.user_id = (select auth.uid())\r\n      and ur.role = 'admin'::public.app_role\r\n  );\r\n$function$\n",
+      "acl": [
+        "postgres=X/postgres",
+        "authenticated=X/postgres"
+      ]
+    },
+    {
+      "schema": "private",
+      "name": "is_verified_rescuer",
+      "args": "",
+      "definition": "CREATE OR REPLACE FUNCTION private.is_verified_rescuer()\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO ''\nAS $function$\r\n  select exists (\r\n    select 1\r\n    from public.user_roles ur\r\n    where ur.user_id = (select auth.uid())\r\n      and ur.role in (\r\n        'rescuer'::public.app_role,\r\n        'admin'::public.app_role\r\n      )\r\n  );\r\n$function$\n",
+      "acl": [
+        "postgres=X/postgres",
+        "authenticated=X/postgres"
+      ]
+    },
+    {
+      "schema": "private",
+      "name": "is_conversation_member",
+      "args": "target_conversation uuid",
+      "definition": "CREATE OR REPLACE FUNCTION private.is_conversation_member(target_conversation uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO ''\nAS $function$\r\n  select exists (\r\n    select 1\r\n    from public.conversation_members cm\r\n    where cm.conversation_id = target_conversation\r\n      and cm.user_id = (select auth.uid())\r\n  );\r\n$function$\n",
+      "acl": [
+        "postgres=X/postgres",
+        "authenticated=X/postgres"
+      ]
+    },
+    {
+      "schema": "private",
+      "name": "can_access_message",
+      "args": "target_message uuid",
+      "definition": "CREATE OR REPLACE FUNCTION private.can_access_message(target_message uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO ''\nAS $function$\r\n  select exists (\r\n    select 1\r\n    from public.messages m\r\n    join public.conversation_members cm\r\n      on cm.conversation_id = m.conversation_id\r\n    where m.id = target_message\r\n      and cm.user_id = (select auth.uid())\r\n  );\r\n$function$\n",
+      "acl": [
+        "postgres=X/postgres",
+        "authenticated=X/postgres"
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "review_rescue_request",
+      "args": "p_request_id uuid, p_approve boolean, p_rejection_reason text",
+      "definition": "CREATE OR REPLACE FUNCTION public.review_rescue_request(p_request_id uuid, p_approve boolean, p_rejection_reason text DEFAULT NULL::text)\n RETURNS void\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO ''\nAS $function$\r\ndeclare\r\n  target_user uuid;\r\nbegin\r\n\r\n  if not private.is_admin() then\r\n    raise exception 'admin role required';\r\n  end if;\r\n\r\n  select r.user_id\r\n  into target_user\r\n  from public.rescue_verification_requests r\r\n  where r.id = p_request_id\r\n    and r.status = 'pending'\r\n  for update;\r\n\r\n  if target_user is null then\r\n    raise exception 'pending rescue verification request not found';\r\n  end if;\r\n\r\n  update public.rescue_verification_requests\r\n  set\r\n    status = case when p_approve then 'approved' else 'rejected' end,\r\n    reviewed_at = now(),\r\n    reviewed_by = (select auth.uid()),\r\n    rejection_reason = case\r\n      when p_approve then null\r\n      else p_rejection_reason\r\n    end\r\n  where id = p_request_id;\r\n\r\n  if p_approve then\r\n    update public.user_roles\r\n    set\r\n      role = case\r\n        when role = 'admin'::public.app_role then role\r\n        else 'rescuer'::public.app_role\r\n      end,\r\n      assigned_at = now(),\r\n      assigned_by = (select auth.uid())\r\n    where user_id = target_user;\r\n  end if;\r\n\r\nend;\r\n$function$\n",
+      "acl": [
+        "postgres=X/postgres",
+        "authenticated=X/postgres"
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "rls_auto_enable",
+      "args": "",
+      "definition": "CREATE OR REPLACE FUNCTION public.rls_auto_enable()\n RETURNS event_trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog'\nAS $function$\nDECLARE\n  cmd record;\nBEGIN\n  FOR cmd IN\n    SELECT *\n    FROM pg_event_trigger_ddl_commands()\n    WHERE command_tag IN ('CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO')\n      AND object_type IN ('table','partitioned table')\n  LOOP\n     IF cmd.schema_name IS NOT NULL AND cmd.schema_name IN ('public') AND cmd.schema_name NOT IN ('pg_catalog','information_schema') AND cmd.schema_name NOT LIKE 'pg_toast%' AND cmd.schema_name NOT LIKE 'pg_temp%' THEN\n      BEGIN\n        EXECUTE format('alter table if exists %s enable row level security', cmd.object_identity);\n        RAISE LOG 'rls_auto_enable: enabled RLS on %', cmd.object_identity;\n      EXCEPTION\n        WHEN OTHERS THEN\n          RAISE LOG 'rls_auto_enable: failed to enable RLS on %', cmd.object_identity;\n      END;\n     ELSE\n        RAISE LOG 'rls_auto_enable: skip % (either system schema or not in enforced list: %.)', cmd.object_identity, cmd.schema_name;\n     END IF;\n  END LOOP;\nEND;\n$function$\n",
+      "acl": null
+    },
+    {
+      "schema": "public",
+      "name": "set_updated_at",
+      "args": "",
+      "definition": "CREATE OR REPLACE FUNCTION public.set_updated_at()\n RETURNS trigger\n LANGUAGE plpgsql\n SET search_path TO ''\nAS $function$\r\nbegin\r\n  new.updated_at = now();\r\n  return new;\r\nend;\r\n$function$\n",
+      "acl": null
+    },
+    {
+      "schema": "public",
+      "name": "handle_new_user",
+      "args": "",
+      "definition": "CREATE OR REPLACE FUNCTION public.handle_new_user()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO ''\nAS $function$\r\nbegin\r\n\r\n  insert into public.profiles (\r\n    id,\r\n    first_name,\r\n    last_name,\r\n    photo_path\r\n  )\r\n  values (\r\n    new.id,\r\n    coalesce(\r\n      nullif(trim(new.raw_user_meta_data ->> 'first_name'), ''),\r\n      'Unknown'\r\n    ),\r\n    coalesce(\r\n      nullif(trim(new.raw_user_meta_data ->> 'last_name'), ''),\r\n      'Unknown'\r\n    ),\r\n    nullif(trim(new.raw_user_meta_data ->> 'photo_path'), '')\r\n  );\r\n\r\n  insert into public.user_private (\r\n    user_id,\r\n    phone\r\n  )\r\n  values (\r\n    new.id,\r\n    nullif(trim(new.raw_user_meta_data ->> 'phone'), '')\r\n  );\r\n\r\n  insert into public.user_roles (\r\n    user_id,\r\n    role\r\n  )\r\n  values (\r\n    new.id,\r\n    'user'::public.app_role\r\n  );\r\n\r\n  insert into public.user_settings (\r\n    user_id\r\n  )\r\n  values (\r\n    new.id\r\n  );\r\n\r\n  return new;\r\nend;\r\n$function$\n",
+      "acl": null
+    },
+    {
+      "schema": "public",
+      "name": "ensure_week3_conversation",
+      "args": "p_conversation_id uuid",
+      "definition": "CREATE OR REPLACE FUNCTION public.ensure_week3_conversation(p_conversation_id uuid)\n RETURNS void\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO ''\nAS $function$\r\ndeclare\r\n  v_user_id uuid := auth.uid();\r\n  v_has_member boolean;\r\nbegin\r\n  if v_user_id is null then\r\n    raise exception 'Authentication required';\r\n  end if;\r\n\r\n  -- ถ้ามี conversation นี้อยู่แล้ว\r\n  if exists (\r\n    select 1\r\n    from public.conversations\r\n    where id = p_conversation_id\r\n  ) then\r\n\r\n    -- ถ้าผู้ใช้เป็นสมาชิกอยู่แล้ว จบได้เลย\r\n    if exists (\r\n      select 1\r\n      from public.conversation_members\r\n      where conversation_id = p_conversation_id\r\n        and user_id = v_user_id\r\n    ) then\r\n      return;\r\n    end if;\r\n\r\n    -- ป้องกันการเข้า conversation ของคนอื่น\r\n    select exists (\r\n      select 1\r\n      from public.conversation_members\r\n      where conversation_id = p_conversation_id\r\n    )\r\n    into v_has_member;\r\n\r\n    if v_has_member then\r\n      raise exception 'Conversation already belongs to another user';\r\n    end if;\r\n\r\n  else\r\n\r\n    -- จุดที่แก้:\r\n    -- created_by ห้ามเป็น NULL\r\n    insert into public.conversations (\r\n      id,\r\n      created_by\r\n    )\r\n    values (\r\n      p_conversation_id,\r\n      v_user_id\r\n    );\r\n\r\n  end if;\r\n\r\n  -- เพิ่มผู้ใช้ปัจจุบันเป็นสมาชิก\r\n  insert into public.conversation_members (\r\n    conversation_id,\r\n    user_id\r\n  )\r\n  values (\r\n    p_conversation_id,\r\n    v_user_id\r\n  )\r\n  on conflict do nothing;\r\nend;\r\n$function$\n",
+      "acl": [
+        "postgres=X/postgres",
+        "authenticated=X/postgres"
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "chat_is_member",
+      "args": "p_conversation_id uuid, p_user_id uuid",
+      "definition": "CREATE OR REPLACE FUNCTION public.chat_is_member(p_conversation_id uuid, p_user_id uuid DEFAULT auth.uid())\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO ''\nAS $function$\r\n  select exists (\r\n    select 1\r\n    from public.conversation_members cm\r\n    where cm.conversation_id = p_conversation_id\r\n      and cm.user_id = p_user_id\r\n  );\r\n$function$\n",
+      "acl": [
+        "postgres=X/postgres",
+        "authenticated=X/postgres"
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "chat_search_users",
+      "args": "p_query text",
+      "definition": "CREATE OR REPLACE FUNCTION public.chat_search_users(p_query text DEFAULT ''::text)\n RETURNS TABLE(id uuid, first_name text, last_name text, photo_path text, role text)\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO ''\nAS $function$\r\n  select\r\n    p.id,\r\n    p.first_name,\r\n    p.last_name,\r\n    p.photo_path,\r\n    ur.role::text\r\n  from public.profiles p\r\n  left join public.user_roles ur on ur.user_id = p.id\r\n  where p.id <> auth.uid()\r\n    and (\r\n      nullif(trim(p_query), '') is null\r\n      or concat_ws(' ', p.first_name, p.last_name) ilike '%' || trim(p_query) || '%'\r\n    )\r\n  order by p.first_name, p.last_name\r\n  limit 30;\r\n$function$\n",
+      "acl": [
+        "postgres=X/postgres",
+        "authenticated=X/postgres"
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "chat_get_or_create_direct",
+      "args": "p_other_user uuid",
+      "definition": "CREATE OR REPLACE FUNCTION public.chat_get_or_create_direct(p_other_user uuid)\n RETURNS uuid\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO ''\nAS $function$\r\ndeclare\r\n  v_me uuid := auth.uid();\r\n  v_key text;\r\n  v_conversation uuid;\r\nbegin\r\n  if v_me is null then\r\n    raise exception 'Authentication required';\r\n  end if;\r\n\r\n  if p_other_user is null or p_other_user = v_me then\r\n    raise exception 'Invalid chat recipient';\r\n  end if;\r\n\r\n  if not exists (select 1 from public.profiles where id = p_other_user) then\r\n    raise exception 'Recipient not found';\r\n  end if;\r\n\r\n  v_key := case\r\n    when v_me::text < p_other_user::text\r\n      then v_me::text || ':' || p_other_user::text\r\n    else p_other_user::text || ':' || v_me::text\r\n  end;\r\n\r\n  insert into public.conversations (\r\n    id,\r\n    created_by,\r\n    kind,\r\n    direct_key,\r\n    created_at,\r\n    updated_at\r\n  )\r\n  values (\r\n    gen_random_uuid(),\r\n    v_me,\r\n    'direct',\r\n    v_key,\r\n    now(),\r\n    now()\r\n  )\r\n  on conflict (direct_key) where direct_key is not null\r\n  do update set updated_at = public.conversations.updated_at\r\n  returning id into v_conversation;\r\n\r\n  insert into public.conversation_members (conversation_id, user_id, joined_at)\r\n  values\r\n    (v_conversation, v_me, now()),\r\n    (v_conversation, p_other_user, now())\r\n  on conflict do nothing;\r\n\r\n  return v_conversation;\r\nend;\r\n$function$\n",
+      "acl": [
+        "postgres=X/postgres",
+        "authenticated=X/postgres"
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "chat_list_conversations",
+      "args": "",
+      "definition": "CREATE OR REPLACE FUNCTION public.chat_list_conversations()\n RETURNS TABLE(conversation_id uuid, other_user_id uuid, display_name text, photo_path text, last_message text, last_message_at timestamp with time zone, unread_count bigint, peer_last_read_at timestamp with time zone, updated_at timestamp with time zone)\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO ''\nAS $function$\r\n  select\r\n    c.id as conversation_id,\r\n    peer.user_id as other_user_id,\r\n    trim(concat_ws(' ', p.first_name, p.last_name)) as display_name,\r\n    p.photo_path,\r\n    c.last_message_preview as last_message,\r\n    c.last_message_at,\r\n    (\r\n      select count(*)\r\n      from public.messages m\r\n      where m.conversation_id = c.id\r\n        and coalesce(m.is_deleted, false) = false\r\n        and m.sender_id <> auth.uid()\r\n        and m.created_at > coalesce(me.last_read_at, 'epoch'::timestamptz)\r\n    ) as unread_count,\r\n    peer.last_read_at as peer_last_read_at,\r\n    c.updated_at\r\n  from public.conversation_members me\r\n  join public.conversations c on c.id = me.conversation_id\r\n  join public.conversation_members peer\r\n    on peer.conversation_id = c.id\r\n   and peer.user_id <> me.user_id\r\n  join public.profiles p on p.id = peer.user_id\r\n  where me.user_id = auth.uid()\r\n    and c.kind = 'direct'\r\n    and me.archived_at is null\r\n  order by coalesce(c.last_message_at, c.updated_at) desc;\r\n$function$\n",
+      "acl": [
+        "postgres=X/postgres",
+        "authenticated=X/postgres"
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "chat_mark_read",
+      "args": "p_conversation_id uuid",
+      "definition": "CREATE OR REPLACE FUNCTION public.chat_mark_read(p_conversation_id uuid)\n RETURNS void\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO ''\nAS $function$\r\nbegin\r\n  if auth.uid() is null then\r\n    raise exception 'Authentication required';\r\n  end if;\r\n\r\n  update public.conversation_members\r\n  set last_read_at = now()\r\n  where conversation_id = p_conversation_id\r\n    and user_id = auth.uid();\r\n\r\n  if not found then\r\n    raise exception 'Not a member of this conversation';\r\n  end if;\r\nend;\r\n$function$\n",
+      "acl": [
+        "postgres=X/postgres",
+        "authenticated=X/postgres"
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "chat_refresh_conversation_preview",
+      "args": "",
+      "definition": "CREATE OR REPLACE FUNCTION public.chat_refresh_conversation_preview()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO ''\nAS $function$\r\ndeclare\r\n  v_conversation uuid;\r\n  v_preview text;\r\n  v_time timestamptz;\r\nbegin\r\n  if tg_op = 'DELETE' then\r\n    v_conversation := old.conversation_id;\r\n  else\r\n    v_conversation := new.conversation_id;\r\n  end if;\r\n  select\r\n    case m.type\r\n      when 'image' then '📷 รูปภาพ'\r\n      when 'video' then '🎬 วิดีโอ'\r\n      when 'audio' then '🎵 ไฟล์เสียง'\r\n      when 'file' then '📎 ไฟล์'\r\n      when 'location' then '📍 ตำแหน่ง'\r\n      else left(coalesce(m.content, ''), 180)\r\n    end,\r\n    m.created_at\r\n  into v_preview, v_time\r\n  from public.messages m\r\n  where m.conversation_id = v_conversation\r\n    and coalesce(m.is_deleted, false) = false\r\n  order by m.created_at desc\r\n  limit 1;\r\n\r\n  update public.conversations\r\n  set last_message_preview = v_preview,\r\n      last_message_at = v_time,\r\n      updated_at = now()\r\n  where id = v_conversation;\r\n\r\n  if tg_op = 'DELETE' then\r\n    return old;\r\n  end if;\r\n  return new;\r\nend;\r\n$function$\n",
+      "acl": null
+    }
+  ],
+  "policies": [
+    {
+      "schemaname": "public",
+      "tablename": "user_private",
+      "policyname": "user_private_select_own",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "(( SELECT auth.uid() AS uid) = user_id)",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "profiles",
+      "policyname": "profiles_select_authenticated",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "true",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "profiles",
+      "policyname": "profiles_update_own",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "UPDATE",
+      "qual": "(( SELECT auth.uid() AS uid) = id)",
+      "with_check": "(( SELECT auth.uid() AS uid) = id)"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "user_private",
+      "policyname": "user_private_update_own",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "UPDATE",
+      "qual": "(( SELECT auth.uid() AS uid) = user_id)",
+      "with_check": "(( SELECT auth.uid() AS uid) = user_id)"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "user_roles",
+      "policyname": "user_roles_select_authenticated",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "true",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "rescue_verification_requests",
+      "policyname": "rescue_request_select_own",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "(user_id = ( SELECT auth.uid() AS uid))",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "rescue_verification_requests",
+      "policyname": "rescue_request_select_admin",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "private.is_admin()",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "rescue_verification_requests",
+      "policyname": "rescue_request_insert_own",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "((user_id = ( SELECT auth.uid() AS uid)) AND (status = 'pending'::text) AND (reviewed_at IS NULL) AND (reviewed_by IS NULL))"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "rescue_verification_requests",
+      "policyname": "rescue_request_update_own_pending",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "UPDATE",
+      "qual": "((user_id = ( SELECT auth.uid() AS uid)) AND (status = 'pending'::text))",
+      "with_check": "((user_id = ( SELECT auth.uid() AS uid)) AND (status = 'pending'::text) AND (reviewed_at IS NULL) AND (reviewed_by IS NULL))"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "rescue_verification_requests",
+      "policyname": "rescue_request_update_admin",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "UPDATE",
+      "qual": "private.is_admin()",
+      "with_check": "private.is_admin()"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "sos_acknowledgements",
+      "policyname": "sos_ack_insert_role_aware",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "((responder_id = ( SELECT auth.uid() AS uid)) AND ((status = 'seen'::text) OR ((status = ANY (ARRAY['responding'::text, 'resolved'::text])) AND private.is_verified_rescuer())))"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "devices",
+      "policyname": "devices_select_own",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "(( SELECT auth.uid() AS uid) = user_id)",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "devices",
+      "policyname": "devices_insert_own",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "(( SELECT auth.uid() AS uid) = user_id)"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "devices",
+      "policyname": "devices_update_own",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "UPDATE",
+      "qual": "(( SELECT auth.uid() AS uid) = user_id)",
+      "with_check": "(( SELECT auth.uid() AS uid) = user_id)"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "devices",
+      "policyname": "devices_delete_own",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "DELETE",
+      "qual": "(( SELECT auth.uid() AS uid) = user_id)",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "user_settings",
+      "policyname": "settings_select_own",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "(( SELECT auth.uid() AS uid) = user_id)",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "user_settings",
+      "policyname": "settings_update_own",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "UPDATE",
+      "qual": "(( SELECT auth.uid() AS uid) = user_id)",
+      "with_check": "(( SELECT auth.uid() AS uid) = user_id)"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "conversations",
+      "policyname": "conversations_select_member",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "private.is_conversation_member(id)",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "conversations",
+      "policyname": "conversations_insert_creator",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "(created_by = ( SELECT auth.uid() AS uid))"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "conversations",
+      "policyname": "conversations_update_member",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "UPDATE",
+      "qual": "private.is_conversation_member(id)",
+      "with_check": "private.is_conversation_member(id)"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "conversation_members",
+      "policyname": "conversation_members_select_member",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "private.is_conversation_member(conversation_id)",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "conversation_members",
+      "policyname": "conversation_members_insert_self_or_member",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "((user_id = ( SELECT auth.uid() AS uid)) OR private.is_conversation_member(conversation_id))"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "sos_acknowledgements",
+      "policyname": "sos_ack_update_role_aware",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "UPDATE",
+      "qual": "(responder_id = ( SELECT auth.uid() AS uid))",
+      "with_check": "((responder_id = ( SELECT auth.uid() AS uid)) AND ((status = 'seen'::text) OR ((status = ANY (ARRAY['responding'::text, 'resolved'::text])) AND private.is_verified_rescuer())))"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "rescue_sessions",
+      "policyname": "rescue_select_authenticated",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "true",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "conversation_members",
+      "policyname": "conversation_members_delete_self",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "DELETE",
+      "qual": "(user_id = ( SELECT auth.uid() AS uid))",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "messages",
+      "policyname": "messages_select_member",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "private.is_conversation_member(conversation_id)",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "messages",
+      "policyname": "messages_insert_sender",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "((sender_id = ( SELECT auth.uid() AS uid)) AND private.is_conversation_member(conversation_id))"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "messages",
+      "policyname": "messages_update_sender",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "UPDATE",
+      "qual": "((sender_id = ( SELECT auth.uid() AS uid)) AND private.is_conversation_member(conversation_id))",
+      "with_check": "((sender_id = ( SELECT auth.uid() AS uid)) AND private.is_conversation_member(conversation_id))"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "messages",
+      "policyname": "messages_delete_sender",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "DELETE",
+      "qual": "((sender_id = ( SELECT auth.uid() AS uid)) AND private.is_conversation_member(conversation_id))",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "media_attachments",
+      "policyname": "media_select_message_member",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "private.can_access_message(message_id)",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "media_attachments",
+      "policyname": "media_insert_uploader",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "((uploader_id = ( SELECT auth.uid() AS uid)) AND private.can_access_message(message_id))"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "media_attachments",
+      "policyname": "media_update_uploader",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "UPDATE",
+      "qual": "((uploader_id = ( SELECT auth.uid() AS uid)) AND private.can_access_message(message_id))",
+      "with_check": "((uploader_id = ( SELECT auth.uid() AS uid)) AND private.can_access_message(message_id))"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "media_attachments",
+      "policyname": "media_delete_uploader",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "DELETE",
+      "qual": "((uploader_id = ( SELECT auth.uid() AS uid)) AND private.can_access_message(message_id))",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "message_receipts",
+      "policyname": "receipts_select_message_member",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "private.can_access_message(message_id)",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "message_receipts",
+      "policyname": "receipts_insert_own",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "((user_id = ( SELECT auth.uid() AS uid)) AND private.can_access_message(message_id))"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "message_receipts",
+      "policyname": "receipts_update_own",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "UPDATE",
+      "qual": "((user_id = ( SELECT auth.uid() AS uid)) AND private.can_access_message(message_id))",
+      "with_check": "((user_id = ( SELECT auth.uid() AS uid)) AND private.can_access_message(message_id))"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "message_receipts",
+      "policyname": "receipts_delete_own",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "DELETE",
+      "qual": "((user_id = ( SELECT auth.uid() AS uid)) AND private.can_access_message(message_id))",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "sos_events",
+      "policyname": "sos_select_authenticated",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "true",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "sos_events",
+      "policyname": "sos_insert_own",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "(owner_id = ( SELECT auth.uid() AS uid))"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "sos_events",
+      "policyname": "sos_update_own",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "UPDATE",
+      "qual": "(owner_id = ( SELECT auth.uid() AS uid))",
+      "with_check": "(owner_id = ( SELECT auth.uid() AS uid))"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "sos_acknowledgements",
+      "policyname": "sos_ack_select_authenticated",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "true",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "rescue_sessions",
+      "policyname": "rescue_insert_verified_rescuer",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "((owner_id = ( SELECT auth.uid() AS uid)) AND private.is_verified_rescuer())"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "rescue_sessions",
+      "policyname": "rescue_update_verified_rescuer",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "UPDATE",
+      "qual": "((owner_id = ( SELECT auth.uid() AS uid)) AND private.is_verified_rescuer())",
+      "with_check": "((owner_id = ( SELECT auth.uid() AS uid)) AND private.is_verified_rescuer())"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "notifications",
+      "policyname": "notifications_select_own",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "(user_id = ( SELECT auth.uid() AS uid))",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "notifications",
+      "policyname": "notifications_update_own",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "UPDATE",
+      "qual": "(user_id = ( SELECT auth.uid() AS uid))",
+      "with_check": "(user_id = ( SELECT auth.uid() AS uid))"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "messages",
+      "policyname": "chat_messages_delete_sender",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "DELETE",
+      "qual": "((sender_id = auth.uid()) AND chat_is_member(conversation_id, auth.uid()))",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "notifications",
+      "policyname": "notifications_delete_own",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "DELETE",
+      "qual": "(user_id = ( SELECT auth.uid() AS uid))",
+      "with_check": null
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "avatars_read_authenticated",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "(bucket_id = 'avatars'::text)",
+      "with_check": null
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "avatars_insert_own",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "((bucket_id = 'avatars'::text) AND ((storage.foldername(name))[1] = (( SELECT auth.uid() AS uid))::text))"
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "avatars_update_own",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "UPDATE",
+      "qual": "((bucket_id = 'avatars'::text) AND ((storage.foldername(name))[1] = (( SELECT auth.uid() AS uid))::text))",
+      "with_check": "((bucket_id = 'avatars'::text) AND ((storage.foldername(name))[1] = (( SELECT auth.uid() AS uid))::text))"
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "avatars_delete_own",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "DELETE",
+      "qual": "((bucket_id = 'avatars'::text) AND ((storage.foldername(name))[1] = (( SELECT auth.uid() AS uid))::text))",
+      "with_check": null
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "chat_media_select_member",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "((bucket_id = 'chat-media'::text) AND private.is_conversation_member(((storage.foldername(name))[1])::uuid))",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "message_reactions",
+      "policyname": "chat_reactions_select_member",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "chat_is_member(conversation_id, auth.uid())",
+      "with_check": null
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "chat_media_insert_member",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "((bucket_id = 'chat-media'::text) AND private.is_conversation_member(((storage.foldername(name))[1])::uuid))"
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "chat_media_update_member",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "UPDATE",
+      "qual": "((bucket_id = 'chat-media'::text) AND private.is_conversation_member(((storage.foldername(name))[1])::uuid))",
+      "with_check": "((bucket_id = 'chat-media'::text) AND private.is_conversation_member(((storage.foldername(name))[1])::uuid))"
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "chat_media_delete_member",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "DELETE",
+      "qual": "((bucket_id = 'chat-media'::text) AND private.is_conversation_member(((storage.foldername(name))[1])::uuid))",
+      "with_check": null
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "rescue_docs_select_owner",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "((bucket_id = 'rescue-verification'::text) AND ((storage.foldername(name))[1] = (( SELECT auth.uid() AS uid))::text))",
+      "with_check": null
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "rescue_docs_select_admin",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "((bucket_id = 'rescue-verification'::text) AND private.is_admin())",
+      "with_check": null
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "rescue_docs_insert_owner",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "((bucket_id = 'rescue-verification'::text) AND ((storage.foldername(name))[1] = (( SELECT auth.uid() AS uid))::text))"
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "rescue_docs_update_owner",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "UPDATE",
+      "qual": "((bucket_id = 'rescue-verification'::text) AND ((storage.foldername(name))[1] = (( SELECT auth.uid() AS uid))::text))",
+      "with_check": "((bucket_id = 'rescue-verification'::text) AND ((storage.foldername(name))[1] = (( SELECT auth.uid() AS uid))::text))"
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "rescue_docs_delete_owner",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "DELETE",
+      "qual": "((bucket_id = 'rescue-verification'::text) AND ((storage.foldername(name))[1] = (( SELECT auth.uid() AS uid))::text))",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "conversations",
+      "policyname": "chat_conversations_select_member",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "chat_is_member(id, auth.uid())",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "conversation_members",
+      "policyname": "chat_members_select_members",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "chat_is_member(conversation_id, auth.uid())",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "messages",
+      "policyname": "chat_messages_select_members",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "chat_is_member(conversation_id, auth.uid())",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "messages",
+      "policyname": "chat_messages_insert_members",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "((sender_id = auth.uid()) AND chat_is_member(conversation_id, auth.uid()))"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "messages",
+      "policyname": "chat_messages_update_sender",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "UPDATE",
+      "qual": "((sender_id = auth.uid()) AND chat_is_member(conversation_id, auth.uid()))",
+      "with_check": "((sender_id = auth.uid()) AND chat_is_member(conversation_id, auth.uid()))"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "message_reactions",
+      "policyname": "chat_reactions_insert_self",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "((user_id = auth.uid()) AND chat_is_member(conversation_id, auth.uid()) AND (EXISTS ( SELECT 1\n   FROM messages m\n  WHERE ((m.id = message_reactions.message_id) AND (m.conversation_id = m.conversation_id)))))"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "message_reactions",
+      "policyname": "chat_reactions_delete_self",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "DELETE",
+      "qual": "((user_id = auth.uid()) AND chat_is_member(conversation_id, auth.uid()))",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "chat_typing",
+      "policyname": "chat_typing_select_member",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "chat_is_member(conversation_id, auth.uid())",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "chat_typing",
+      "policyname": "chat_typing_insert_self",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "((user_id = auth.uid()) AND chat_is_member(conversation_id, auth.uid()))"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "chat_typing",
+      "policyname": "chat_typing_update_self",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "UPDATE",
+      "qual": "((user_id = auth.uid()) AND chat_is_member(conversation_id, auth.uid()))",
+      "with_check": "((user_id = auth.uid()) AND chat_is_member(conversation_id, auth.uid()))"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "chat_typing",
+      "policyname": "chat_typing_delete_self",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "DELETE",
+      "qual": "(user_id = auth.uid())",
+      "with_check": null
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "chat_media_read_members",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "((bucket_id = 'chat-media'::text) AND (array_length(storage.foldername(name), 1) >= 2) AND chat_is_member(((storage.foldername(name))[2])::uuid, auth.uid()))",
+      "with_check": null
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "chat_media_insert_sender",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "((bucket_id = 'chat-media'::text) AND ((storage.foldername(name))[1] = (auth.uid())::text) AND chat_is_member(((storage.foldername(name))[2])::uuid, auth.uid()))"
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "chat_media_update_sender",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "UPDATE",
+      "qual": "((bucket_id = 'chat-media'::text) AND ((storage.foldername(name))[1] = (auth.uid())::text))",
+      "with_check": "((bucket_id = 'chat-media'::text) AND ((storage.foldername(name))[1] = (auth.uid())::text))"
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "chat_media_delete_sender",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "DELETE",
+      "qual": "((bucket_id = 'chat-media'::text) AND ((storage.foldername(name))[1] = (auth.uid())::text))",
+      "with_check": null
+    },
+    {
+      "schemaname": "storage",
+      "tablename": "objects",
+      "policyname": "avatars_authenticated_read",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "cmd": "SELECT",
+      "qual": "(bucket_id = 'avatars'::text)",
+      "with_check": null
+    }
+  ],
+  "constraints": [
+    {
+      "name": "devices_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "devices_platform_check",
+      "definition": "CHECK ((platform = ANY (ARRAY['ios'::text, 'web'::text, 'macos'::text])))"
+    },
+    {
+      "name": "devices_user_id_fkey",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    }
+  ],
+  "triggers": [
+    {
+      "table": "profiles",
+      "trigger": "CREATE TRIGGER profiles_updated_at BEFORE UPDATE ON public.profiles FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+    },
+    {
+      "table": "user_private",
+      "trigger": "CREATE TRIGGER user_private_updated_at BEFORE UPDATE ON public.user_private FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+    },
+    {
+      "table": "devices",
+      "trigger": "CREATE TRIGGER devices_updated_at BEFORE UPDATE ON public.devices FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+    },
+    {
+      "table": "user_settings",
+      "trigger": "CREATE TRIGGER user_settings_updated_at BEFORE UPDATE ON public.user_settings FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+    },
+    {
+      "table": "conversations",
+      "trigger": "CREATE TRIGGER conversations_updated_at BEFORE UPDATE ON public.conversations FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+    },
+    {
+      "table": "messages",
+      "trigger": "CREATE TRIGGER messages_updated_at BEFORE UPDATE ON public.messages FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+    },
+    {
+      "table": "sos_events",
+      "trigger": "CREATE TRIGGER sos_events_updated_at BEFORE UPDATE ON public.sos_events FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+    },
+    {
+      "table": "sos_acknowledgements",
+      "trigger": "CREATE TRIGGER sos_acknowledgements_updated_at BEFORE UPDATE ON public.sos_acknowledgements FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+    },
+    {
+      "table": "rescue_sessions",
+      "trigger": "CREATE TRIGGER rescue_sessions_updated_at BEFORE UPDATE ON public.rescue_sessions FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+    },
+    {
+      "table": "messages",
+      "trigger": "CREATE TRIGGER on_message_created_notify AFTER INSERT ON public.messages FOR EACH ROW EXECUTE FUNCTION notify_new_message()"
+    },
+    {
+      "table": "sos_events",
+      "trigger": "CREATE TRIGGER on_sos_created_notify AFTER INSERT ON public.sos_events FOR EACH ROW EXECUTE FUNCTION notify_new_sos()"
+    },
+    {
+      "table": "sos_acknowledgements",
+      "trigger": "CREATE TRIGGER on_sos_response_notify AFTER INSERT OR UPDATE ON public.sos_acknowledgements FOR EACH ROW EXECUTE FUNCTION notify_sos_response()"
+    },
+    {
+      "table": "messages",
+      "trigger": "CREATE TRIGGER trg_chat_refresh_conversation_preview AFTER INSERT OR DELETE OR UPDATE ON public.messages FOR EACH ROW EXECUTE FUNCTION chat_refresh_conversation_preview()"
+    }
+  ]
+}

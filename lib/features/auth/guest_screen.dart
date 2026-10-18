@@ -5,10 +5,7 @@ import '../../models/user.dart';
 import '../../services/auth_service.dart';
 
 class GuestScreen extends StatefulWidget {
-  const GuestScreen({
-    super.key,
-    required this.onDone,
-  });
+  const GuestScreen({super.key, required this.onDone});
 
   final void Function(AppUser identity) onDone;
 
@@ -35,10 +32,7 @@ class _GuestScreenState extends State<GuestScreen> {
     setState(() => _busy = true);
 
     try {
-      final user = await AuthService.createGuest(
-        _first.text,
-        _last.text,
-      );
+      final user = await AuthService.createGuest(_first.text, _last.text);
 
       if (!mounted) return;
       widget.onDone(user);
@@ -46,10 +40,7 @@ class _GuestScreenState extends State<GuestScreen> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: AppColors.error,
-          content: Text(e.message),
-        ),
+        SnackBar(backgroundColor: AppColors.error, content: Text(e.message)),
       );
     } finally {
       if (mounted) {
@@ -63,47 +54,38 @@ class _GuestScreenState extends State<GuestScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-          'ใช้งานแบบไม่เป็นสมาชิก',
+          'เริ่มต้นโดยไม่สมัครสมาชิก',
           style: TextStyle(fontWeight: FontWeight.w900),
         ),
       ),
       body: SafeArea(
         child: ListView(
-          keyboardDismissBehavior:
-              ScrollViewKeyboardDismissBehavior.onDrag,
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
           children: [
-            const Icon(
+            Icon(
               Icons.person_outline_rounded,
               size: 66,
-              color: AppColors.info,
+              color: context.colors.info,
             ),
             const SizedBox(height: 16),
             const Text(
-              'เริ่มใช้งานแบบ Offline',
+              'เริ่มต้นได้ทันที',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w900,
-              ),
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'ข้อมูลตัวตนจะถูกเก็บในอุปกรณ์ '
-              'และจะไม่สร้างบัญชีบน Supabase',
+            Text(
+              'บอกชื่อของคุณ เพื่อให้ผู้ช่วยเหลือรู้จักคุณ'
+              '\nข้อมูลจะถูกเก็บไว้บนอุปกรณ์นี้',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                color: AppColors.muted,
-                height: 1.5,
-              ),
+              style: TextStyle(color: context.colors.muted, height: 1.5),
             ),
             const SizedBox(height: 28),
             TextField(
               controller: _first,
               textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: 'ชื่อจริง *',
-              ),
+              decoration: const InputDecoration(labelText: 'ชื่อจริง *'),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -112,29 +94,23 @@ class _GuestScreenState extends State<GuestScreen> {
               onSubmitted: (_) {
                 if (!_busy) _start();
               },
-              decoration: const InputDecoration(
-                labelText: 'นามสกุล *',
-              ),
+              decoration: const InputDecoration(labelText: 'นามสกุล *'),
             ),
             const SizedBox(height: 22),
             SizedBox(
               height: 52,
-              child: OutlinedButton.icon(
+              child: FilledButton.icon(
                 onPressed: _busy ? null : _start,
                 icon: const Icon(Icons.arrow_forward_rounded),
                 label: _busy
                     ? const SizedBox(
                         width: 22,
                         height: 22,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.5,
-                        ),
+                        child: CircularProgressIndicator(strokeWidth: 2.5),
                       )
                     : const Text(
                         'เริ่มใช้งานแบบไม่เป็นสมาชิก',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                        ),
+                        style: TextStyle(fontWeight: FontWeight.w800),
                       ),
               ),
             ),
@@ -142,26 +118,23 @@ class _GuestScreenState extends State<GuestScreen> {
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: AppColors.info.withValues(alpha: .08),
+                color: context.colors.info.withValues(alpha: .08),
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
-                  color: AppColors.info.withValues(alpha: .25),
+                  color: context.colors.info.withValues(alpha: .25),
                 ),
               ),
-              child: const Row(
+              child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    Icons.info_outline_rounded,
-                    color: AppColors.info,
-                  ),
+                  Icon(Icons.info_outline_rounded, color: context.colors.info),
                   SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Guest ไม่มี Cloud role และไม่ถือว่าเป็นหน่วยกู้ภัยที่ผ่านการยืนยัน '
-                      'สามารถสมัครสมาชิกภายหลังได้',
+                      'คุณบันทึก SOS และเชื่อมต่อ Nearby บน Android ได้ '
+                      'หากต้องการแชทส่วนตัวหรือยืนยันสถานะหน่วยกู้ภัย สามารถสมัครสมาชิกภายหลังได้',
                       style: TextStyle(
-                        color: AppColors.muted,
+                        color: context.colors.muted,
                         height: 1.45,
                       ),
                     ),

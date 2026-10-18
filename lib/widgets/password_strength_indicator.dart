@@ -29,17 +29,17 @@ class PasswordStrengthIndicator extends StatelessWidget {
     return 'ความแข็งแรง: แข็งแรง';
   }
 
-  Color _color(int score) {
+  Color _color(BuildContext context, int score) {
     if (score <= 1) return AppColors.error;
-    if (score == 2) return AppColors.pending;
-    if (score <= 4) return AppColors.info;
-    return AppColors.success;
+    if (score == 2) return context.colors.pending;
+    if (score <= 4) return context.colors.info;
+    return context.colors.success;
   }
 
   @override
   Widget build(BuildContext context) {
     final score = _score(password);
-    final color = _color(score);
+    final color = _color(context, score);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -48,21 +48,25 @@ class PasswordStrengthIndicator extends StatelessWidget {
           value: password.isEmpty ? 0 : score / 5,
           minHeight: 6,
           color: color,
-          backgroundColor: AppColors.border,
+          backgroundColor: context.colors.border,
         ),
         const SizedBox(height: 6),
         Text(
           _label(score),
           style: TextStyle(
-            color: password.isEmpty ? AppColors.muted : color,
+            color: password.isEmpty ? context.colors.muted : color,
             fontSize: 12,
             fontWeight: FontWeight.w700,
           ),
         ),
         const SizedBox(height: 2),
-        const Text(
+        Text(
           'ขั้นต่ำ 8 ตัวอักษร • แนะนำให้มีตัวพิมพ์ใหญ่/เล็ก ตัวเลข และสัญลักษณ์',
-          style: TextStyle(color: AppColors.muted, fontSize: 11, height: 1.35),
+          style: TextStyle(
+            color: context.colors.muted,
+            fontSize: 11,
+            height: 1.35,
+          ),
         ),
       ],
     );

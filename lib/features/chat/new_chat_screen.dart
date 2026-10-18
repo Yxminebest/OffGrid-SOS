@@ -72,9 +72,9 @@ class _NewChatScreenState extends State<NewChatScreen> {
       Navigator.pop<LocalChatConversation>(context, conversation);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('เปิดห้องสนทนาไม่สำเร็จ: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('เปิดห้องสนทนาไม่สำเร็จ: $e')));
     }
   }
 
@@ -108,16 +108,17 @@ class _NewChatScreenState extends State<NewChatScreen> {
               ),
             Expanded(
               child: _results.isEmpty && !_loading
-                  ? const Center(
+                  ? Center(
                       child: Text(
                         'ไม่พบผู้ใช้',
-                        style: TextStyle(color: AppColors.muted),
+                        style: TextStyle(color: context.colors.muted),
                       ),
                     )
                   : ListView.separated(
                       padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
                       itemCount: _results.length,
-                      separatorBuilder: (context, index) => const Divider(height: 1),
+                      separatorBuilder: (context, index) =>
+                          const Divider(height: 1),
                       itemBuilder: (context, index) {
                         final user = _results[index];
                         final initials = _initials(user.fullName);
@@ -127,24 +128,23 @@ class _NewChatScreenState extends State<NewChatScreen> {
                             vertical: 4,
                           ),
                           leading: CircleAvatar(
-                            backgroundColor: AppColors.surfaceSoft,
+                            backgroundColor: context.colors.surfaceSoft,
                             child: Text(
                               initials,
-                              style: const TextStyle(fontWeight: FontWeight.w800),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                           ),
                           title: Text(
                             user.fullName,
                             style: const TextStyle(fontWeight: FontWeight.w800),
                           ),
-                          subtitle: Text(
-                            switch (user.role) {
-                              'admin' => 'ผู้ดูแลระบบ',
-                              'rescuer' => 'หน่วยกู้ภัยที่ยืนยันแล้ว',
-                              _ => 'ผู้ใช้',
-                            },
-                            style: const TextStyle(color: AppColors.muted),
-                          ),
+                          subtitle: Text(switch (user.role) {
+                            'admin' => 'ผู้ดูแลระบบ',
+                            'rescuer' => 'หน่วยกู้ภัยที่ยืนยันแล้ว',
+                            _ => 'ผู้ใช้',
+                          }, style: TextStyle(color: context.colors.muted)),
                           trailing: const Icon(Icons.chevron_right_rounded),
                           onTap: () => _open(user),
                         );

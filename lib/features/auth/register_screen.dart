@@ -151,10 +151,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
               style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 6),
-            const Text(
+            Text(
               'ระบบใช้ชื่อจริงและนามสกุลจริงในการแสดงตัวตน '
               'เพื่อช่วยลดความสับสนในการสื่อสารฉุกเฉิน',
-              style: TextStyle(color: AppColors.muted, height: 1.5),
+              style: TextStyle(color: context.colors.muted, height: 1.5),
             ),
             const SizedBox(height: 22),
             Center(
@@ -165,29 +165,32 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   children: [
                     CircleAvatar(
                       radius: 48,
-                      backgroundColor: AppColors.surface,
+                      backgroundColor: context.colors.surface,
                       foregroundImage: _avatarBytes == null
                           ? null
                           : MemoryImage(_avatarBytes!),
                       child: _avatarBytes == null
-                          ? const Icon(
+                          ? Icon(
                               Icons.person_rounded,
                               size: 48,
-                              color: AppColors.muted,
+                              color: context.colors.muted,
                             )
                           : null,
                     ),
                     const SizedBox(height: 8),
-                    const Text(
+                    Text(
                       '+ เพิ่มรูปโปรไฟล์',
                       style: TextStyle(
-                        color: AppColors.info,
+                        color: context.colors.info,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                    const Text(
+                    Text(
                       'ไม่บังคับ • อัปโหลดหลังยืนยันอีเมล',
-                      style: TextStyle(color: AppColors.muted, fontSize: 12),
+                      style: TextStyle(
+                        color: context.colors.muted,
+                        fontSize: 12,
+                      ),
                     ),
                   ],
                 ),
@@ -310,7 +313,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
             SizedBox(
               height: 52,
               child: FilledButton(
-                style: FilledButton.styleFrom(backgroundColor: AppColors.info),
+                style: FilledButton.styleFrom(
+                  backgroundColor: context.colors.info,
+                ),
                 onPressed: _busy ? null : _register,
                 child: _busy
                     ? const SizedBox(

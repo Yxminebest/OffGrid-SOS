@@ -5,14 +5,19 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app/supabase_config.dart';
 import 'app/theme.dart';
+import 'app/theme_controller.dart';
 import 'features/auth/login_screen.dart';
 import 'features/auth/reset_password_screen.dart';
 import 'features/home/home_shell.dart';
 import 'models/user.dart';
 import 'services/auth_service.dart';
+import 'services/nearby_mesh_service.dart';
+import 'services/sync_service.dart';
+import 'services/network_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await ThemeController.instance.load();
 
   if (!SupabaseConfig.isConfigured) {
     runApp(const _MissingSupabaseKeyApp());
@@ -27,6 +32,7 @@ Future<void> main() async {
     ),
   );
 
+  NetworkService.instance.start();
   runApp(const OffGridSosApp());
 }
 
@@ -73,6 +79,9 @@ class _OffGridSosAppState extends State<OffGridSosApp> {
             break;
 
           case AuthChangeEvent.signedOut:
+            await SyncService.instance.stop();
+            await NearbyMeshService.instance.resetSession();
+            if (AuthService.currentAuthUser != null) break;
             if (mounted) {
               setState(() {
                 _me = null;
@@ -150,26 +159,31 @@ class _OffGridSosAppState extends State<OffGridSosApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'offgrid-sos',
-      debugShowCheckedModeBanner: false,
-      theme: buildTheme(),
-      home: _loading
-          ? const Scaffold(body: Center(child: CircularProgressIndicator()))
-          : _passwordRecovery
-          ? ResetPasswordScreen(
-              onDone: _finishPasswordRecovery,
-              onCancel: _cancelPasswordRecovery,
-            )
-          : _me == null
-          ? LoginScreen(
-              onDone: (identity) {
-                setState(() {
-                  _me = identity;
-                });
-              },
-            )
-          : HomeShell(me: _me!, onLogout: _logout),
+    return ListenableBuilder(
+      listenable: ThemeController.instance,
+      builder: (context, child) => MaterialApp(
+        title: 'offgrid-sos',
+        debugShowCheckedModeBanner: false,
+        theme: buildTheme(),
+        darkTheme: buildTheme(brightness: Brightness.dark),
+        themeMode: ThemeController.instance.mode,
+        home: _loading
+            ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+            : _passwordRecovery
+            ? ResetPasswordScreen(
+                onDone: _finishPasswordRecovery,
+                onCancel: _cancelPasswordRecovery,
+              )
+            : _me == null
+            ? LoginScreen(
+                onDone: (identity) {
+                  setState(() {
+                    _me = identity;
+                  });
+                },
+              )
+            : HomeShell(key: ValueKey(_me!.id), me: _me!, onLogout: _logout),
+      ),
     );
   }
 }
@@ -179,45 +193,50 @@ class _MissingSupabaseKeyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      theme: buildTheme(),
-      home: Scaffold(
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 560),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(
-                      Icons.key_off_outlined,
-                      size: 64,
-                      color: AppColors.error,
-                    ),
-                    const SizedBox(height: 18),
-                    const Text(
-                      'ยังไม่ได้ใส่ Supabase Publishable Key',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w900,
+    return ListenableBuilder(
+      listenable: ThemeController.instance,
+      builder: (context, child) => MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: buildTheme(),
+        darkTheme: buildTheme(brightness: Brightness.dark),
+        themeMode: ThemeController.instance.mode,
+        home: Scaffold(
+          body: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 560),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.key_off_outlined,
+                        size: 64,
+                        color: AppColors.error,
                       ),
-                    ),
-                    const SizedBox(height: 14),
-                    const SelectableText(
-                      'flutter run -d chrome --web-port=3000 '
-                      '--dart-define=SUPABASE_PUBLISHABLE_KEY=YOUR_KEY',
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 14),
-                    Text(
-                      'Project URL: ${SupabaseConfig.url}',
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
+                      const SizedBox(height: 18),
+                      const Text(
+                        'ยังไม่ได้ใส่ Supabase Publishable Key',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      const SelectableText(
+                        'flutter run -d chrome --web-port=3000 '
+                        '--dart-define=SUPABASE_PUBLISHABLE_KEY=YOUR_KEY',
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        'Project URL: ${SupabaseConfig.url}',
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),

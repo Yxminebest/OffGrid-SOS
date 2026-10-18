@@ -9,13 +9,17 @@ class LocalSosRecord {
     this.latitude,
     this.longitude,
     this.accuracy,
+    this.locationRecordedAt,
+    this.isLastKnownLocation = false,
     this.isActive = true,
     this.endedAt,
     this.syncState = 'pending',
     this.lastError,
+    this.revision = 1,
   });
 
   final String id;
+  final int revision;
 
   /// Guest device id or signed-in user id used to scope local records.
   final String ownerLocalId;
@@ -27,6 +31,8 @@ class LocalSosRecord {
   final double? latitude;
   final double? longitude;
   final double? accuracy;
+  final DateTime? locationRecordedAt;
+  final bool isLastKnownLocation;
 
   final bool isActive;
   final DateTime? endedAt;
@@ -39,10 +45,13 @@ class LocalSosRecord {
   final DateTime updatedAt;
 
   LocalSosRecord copyWith({
+    int? revision,
     String? message,
     double? latitude,
     double? longitude,
     double? accuracy,
+    DateTime? locationRecordedAt,
+    bool? isLastKnownLocation,
     bool? isActive,
     DateTime? endedAt,
     String? syncState,
@@ -52,12 +61,15 @@ class LocalSosRecord {
   }) {
     return LocalSosRecord(
       id: id,
+      revision: revision ?? this.revision,
       ownerLocalId: ownerLocalId,
       ownerUserId: ownerUserId,
       message: message ?? this.message,
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
       accuracy: accuracy ?? this.accuracy,
+      locationRecordedAt: locationRecordedAt ?? this.locationRecordedAt,
+      isLastKnownLocation: isLastKnownLocation ?? this.isLastKnownLocation,
       isActive: isActive ?? this.isActive,
       endedAt: endedAt ?? this.endedAt,
       syncState: syncState ?? this.syncState,
@@ -69,12 +81,15 @@ class LocalSosRecord {
 
   Map<String, Object?> toLocalMap() => <String, Object?>{
     'id': id,
+    'revision': revision,
     'owner_local_id': ownerLocalId,
     'owner_user_id': ownerUserId,
     'message': message,
     'latitude': latitude,
     'longitude': longitude,
     'accuracy': accuracy,
+    'location_recorded_at': locationRecordedAt?.toUtc().toIso8601String(),
+    'is_last_known_location': isLastKnownLocation,
     'is_active': isActive,
     'ended_at': endedAt?.toUtc().toIso8601String(),
     'sync_state': syncState,
@@ -99,12 +114,16 @@ class LocalSosRecord {
   factory LocalSosRecord.fromLocalMap(Map<String, Object?> map) {
     return LocalSosRecord(
       id: map['id']!.toString(),
+      revision: (map['revision'] as num?)?.toInt() ?? 1,
       ownerLocalId: map['owner_local_id']!.toString(),
       ownerUserId: map['owner_user_id']?.toString(),
       message: map['message']?.toString() ?? '',
       latitude: (map['latitude'] as num?)?.toDouble(),
       longitude: (map['longitude'] as num?)?.toDouble(),
       accuracy: (map['accuracy'] as num?)?.toDouble(),
+      locationRecordedAt: _dateOrNull(map['location_recorded_at']),
+      // Older records have no location timestamp, so don't imply a fresh fix.
+      isLastKnownLocation: map['is_last_known_location'] as bool? ?? true,
       isActive: map['is_active'] as bool? ?? true,
       endedAt: _dateOrNull(map['ended_at']),
       syncState: map['sync_state']?.toString() ?? 'pending',

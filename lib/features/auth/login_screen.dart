@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../app/theme.dart';
+import '../../widgets/appearance_picker.dart';
+import '../../widgets/brand_mark.dart';
 
 import '../../models/user.dart';
 
@@ -22,6 +24,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  final _form = GlobalKey<FormState>();
   final _email = TextEditingController();
 
   final _password = TextEditingController();
@@ -40,7 +43,8 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _login() async {
-    if (_busy) return;
+    if (_busy || !(_form.currentState?.validate() ?? false)) return;
+    FocusScope.of(context).unfocus();
 
     setState(() => _busy = true);
 
@@ -110,14 +114,32 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _openRegister() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => RegisterScreen(onDone: widget.onDone)),
+    final navigator = Navigator.of(context);
+    final onDone = widget.onDone;
+    await navigator.push(
+      MaterialPageRoute(
+        builder: (_) => RegisterScreen(
+          onDone: (identity) {
+            navigator.popUntil((route) => route.isFirst);
+            onDone(identity);
+          },
+        ),
+      ),
     );
   }
 
   Future<void> _openGuest() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => GuestScreen(onDone: widget.onDone)),
+    final navigator = Navigator.of(context);
+    final onDone = widget.onDone;
+    await navigator.push(
+      MaterialPageRoute(
+        builder: (_) => GuestScreen(
+          onDone: (identity) {
+            navigator.popUntil((route) => route.isFirst);
+            onDone(identity);
+          },
+        ),
+      ),
     );
   }
 
@@ -149,327 +171,176 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.colors;
     return Scaffold(
       body: SafeArea(
-        child: AutofillGroup(
-          child: ListView(
-            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-
-            padding: const EdgeInsets.fromLTRB(20, 28, 20, 36),
-
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerLeft,
-                      child: const Text(
-                        'offgrid-sos',
-                        maxLines: 1,
-                        style: TextStyle(
-                          fontSize: 30,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: -1.1,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Flexible(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.surface,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: AppColors.border),
-                      ),
-                      child: const FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          'OFF-GRID READY',
-                          maxLines: 1,
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 34),
-
-              Center(
-                child: Container(
-                  width: 82,
-
-                  height: 82,
-
-                  decoration: BoxDecoration(
-                    color: AppColors.error.withValues(alpha: .10),
-
-                    shape: BoxShape.circle,
-
-                    border: Border.all(
-                      color: AppColors.error.withValues(alpha: .40),
-                    ),
-                  ),
-
-                  child: const Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-
-                    children: [
-                      Icon(
-                        Icons.warning_amber_rounded,
-
-                        color: AppColors.error,
-
-                        size: 29,
-                      ),
-
-                      Text(
-                        'SOS',
-
-                        style: TextStyle(
-                          color: AppColors.error,
-
-                          fontWeight: FontWeight.w900,
-
-                          fontSize: 18,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              const Text(
-                'ยินดีต้อนรับ',
-
-                textAlign: TextAlign.center,
-
-                style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
-              ),
-
-              const SizedBox(height: 7),
-
-              const Text(
-                'สื่อสารและขอความช่วยเหลือ\nแม้ในพื้นที่ที่ไม่มีอินเทอร์เน็ต',
-
-                textAlign: TextAlign.center,
-
-                style: TextStyle(color: AppColors.muted, height: 1.45),
-              ),
-
-              const SizedBox(height: 28),
-
-              Container(
-                padding: const EdgeInsets.all(16),
-
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-
-                  borderRadius: BorderRadius.circular(16),
-
-                  border: Border.all(color: AppColors.border),
-                ),
-
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: ListView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: const EdgeInsets.fromLTRB(24, 18, 24, 28),
+              children: [
+                Row(
                   children: [
-                    const Text(
-                      'เข้าสู่ระบบ',
-
-                      style: TextStyle(
-                        fontSize: 21,
-
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-
-                    const SizedBox(height: 4),
-
-                    const Text(
-                      'สำหรับผู้ที่มีบัญชี offgrid-sos แล้ว',
-
-                      style: TextStyle(color: AppColors.muted, fontSize: 13),
-                    ),
-
-                    const SizedBox(height: 18),
-
-                    TextField(
-                      controller: _email,
-
-                      enabled: !_busy,
-
-                      keyboardType: TextInputType.emailAddress,
-
-                      textInputAction: TextInputAction.next,
-
-                      autofillHints: const [
-                        AutofillHints.username,
-
-                        AutofillHints.email,
-                      ],
-
-                      decoration: const InputDecoration(
-                        labelText: 'อีเมล',
-
-                        prefixIcon: Icon(Icons.email_outlined),
-                      ),
-                    ),
-
-                    const SizedBox(height: 12),
-
-                    TextField(
-                      controller: _password,
-
-                      enabled: !_busy,
-
-                      obscureText: _hidePassword,
-
-                      textInputAction: TextInputAction.done,
-
-                      autofillHints: const [AutofillHints.password],
-
-                      onSubmitted: (_) {
-                        if (!_busy) _login();
-                      },
-
-                      decoration: InputDecoration(
-                        labelText: 'รหัสผ่าน',
-
-                        prefixIcon: const Icon(Icons.lock_outline_rounded),
-
-                        suffixIcon: IconButton(
-                          onPressed: _busy
-                              ? null
-                              : () {
-                                  setState(() {
-                                    _hidePassword = !_hidePassword;
-                                  });
-                                },
-
-                          icon: Icon(
-                            _hidePassword
-                                ? Icons.visibility_outlined
-                                : Icons.visibility_off_outlined,
+                    const Expanded(child: BrandLockup()),
+                    const ThemeModeButton(),
+                  ],
+                ),
+                const SizedBox(height: 32),
+                Text(
+                  'อุ่นใจได้\nแม้ไกลสัญญาณ',
+                  style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+                    fontSize: 30,
+                    height: 1.3,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'บันทึก SOS และเชื่อมต่อคนใกล้ตัว\nแม้อินเทอร์เน็ตไม่พร้อม',
+                  style: TextStyle(color: p.muted, height: 1.65),
+                ),
+                const SizedBox(height: 28),
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: AutofillGroup(
+                    child: Form(
+                      key: _form,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            'เริ่มต้นด้วยบัญชีของคุณ',
+                            style: Theme.of(context).textTheme.titleMedium,
                           ),
-                        ),
-                      ),
-                    ),
-
-                    Align(
-                      alignment: Alignment.centerRight,
-
-                      child: TextButton(
-                        onPressed: _busy ? null : _openForgotPassword,
-
-                        child: const Text('ลืมรหัสผ่าน?'),
-                      ),
-                    ),
-
-                    SizedBox(
-                      height: 52,
-
-                      child: FilledButton(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppColors.info,
-                        ),
-
-                        onPressed: _busy ? null : _login,
-
-                        child: _busy
-                            ? const SizedBox(
-                                width: 22,
-
-                                height: 22,
-
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.5,
-
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Text(
-                                'เข้าสู่ระบบ',
-
-                                style: TextStyle(
-                                  fontSize: 17,
-
-                                  fontWeight: FontWeight.w800,
+                          const SizedBox(height: 5),
+                          Text(
+                            'ใช้บัญชีของคุณเพื่อติดตามข้อมูลและการสนทนา',
+                            style: TextStyle(color: p.muted, fontSize: 13),
+                          ),
+                          const SizedBox(height: 22),
+                          TextFormField(
+                            controller: _email,
+                            enabled: !_busy,
+                            keyboardType: TextInputType.emailAddress,
+                            textInputAction: TextInputAction.next,
+                            autofillHints: const [
+                              AutofillHints.username,
+                              AutofillHints.email,
+                            ],
+                            validator: (value) =>
+                                AuthService.isValidEmail(value ?? '')
+                                ? null
+                                : 'กรอกอีเมลให้ถูกต้อง',
+                            decoration: const InputDecoration(
+                              labelText: 'อีเมล',
+                              hintText: 'you@example.com',
+                              prefixIcon: Icon(Icons.alternate_email_rounded),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _password,
+                            enabled: !_busy,
+                            obscureText: _hidePassword,
+                            textInputAction: TextInputAction.done,
+                            autofillHints: const [AutofillHints.password],
+                            validator: (value) => value == null || value.isEmpty
+                                ? 'กรอกรหัสผ่านของคุณ'
+                                : null,
+                            onFieldSubmitted: (_) => _login(),
+                            decoration: InputDecoration(
+                              labelText: 'รหัสผ่าน',
+                              prefixIcon: const Icon(
+                                Icons.lock_outline_rounded,
+                              ),
+                              suffixIcon: IconButton(
+                                tooltip: _hidePassword
+                                    ? 'แสดงรหัสผ่าน'
+                                    : 'ซ่อนรหัสผ่าน',
+                                onPressed: _busy
+                                    ? null
+                                    : () => setState(
+                                        () => _hidePassword = !_hidePassword,
+                                      ),
+                                icon: Icon(
+                                  _hidePassword
+                                      ? Icons.visibility_outlined
+                                      : Icons.visibility_off_outlined,
                                 ),
                               ),
+                            ),
+                          ),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton(
+                              onPressed: _busy ? null : _openForgotPassword,
+                              child: const Text('ลืมรหัสผ่าน?'),
+                            ),
+                          ),
+                          FilledButton(
+                            onPressed: _busy ? null : _login,
+                            child: _busy
+                                ? const SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Text('เข้าสู่ระบบ'),
+                          ),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            alignment: WrapAlignment.center,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              Text(
+                                'ยังไม่มีบัญชี?',
+                                style: TextStyle(color: p.muted, fontSize: 13),
+                              ),
+                              TextButton(
+                                onPressed: _busy ? null : _openRegister,
+                                child: const Text('สมัครสมาชิก'),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
-                  ],
+                  ),
                 ),
-              ),
-
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 20),
-
-                child: Row(
+                const SizedBox(height: 20),
+                Row(
                   children: [
-                    Expanded(child: Divider()),
-
-                    Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 14),
-
-                      child: Text(
-                        'หรือ',
-
-                        style: TextStyle(color: AppColors.muted),
+                    Expanded(child: Divider(color: p.border)),
+                    Flexible(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        child: Text(
+                          'เริ่มต้นได้ทันที',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: p.muted, fontSize: 12),
+                        ),
                       ),
                     ),
-
-                    Expanded(child: Divider()),
+                    Expanded(child: Divider(color: p.border)),
                   ],
                 ),
-              ),
-
-              SizedBox(
-                height: 52,
-
-                child: OutlinedButton.icon(
-                  onPressed: _busy ? null : _openRegister,
-
-                  icon: const Icon(Icons.person_add_alt_1_rounded),
-
-                  label: const Text(
-                    'สมัครสมาชิก',
-
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 10),
-
-              SizedBox(
-                height: 52,
-
-                child: OutlinedButton.icon(
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
                   onPressed: _busy ? null : _openGuest,
-
                   icon: const Icon(Icons.person_outline_rounded),
-
-                  label: const Text(
-                    'ใช้งานแบบไม่เป็นสมาชิก',
-
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-                  ),
+                  label: const Text('ใช้งานโดยไม่สมัครสมาชิก'),
                 ),
-              ),
-            ],
+                const SizedBox(height: 12),
+                Text(
+                  'บันทึก SOS ในเครื่องได้ แม้ไม่ได้เข้าสู่ระบบ',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: p.muted, fontSize: 12),
+                ),
+              ],
+            ),
           ),
         ),
       ),

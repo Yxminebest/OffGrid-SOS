@@ -50,7 +50,8 @@ class LocalMessageRecord {
   final DateTime createdAt;
   final DateTime updatedAt;
 
-  bool get hasAttachment => mediaPath != null || (mediaBytes?.isNotEmpty ?? false);
+  bool get hasAttachment =>
+      mediaPath != null || (mediaBytes?.isNotEmpty ?? false);
 
   LocalMessageRecord copyWith({
     String? content,

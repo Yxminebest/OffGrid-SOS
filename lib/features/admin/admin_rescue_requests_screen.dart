@@ -95,7 +95,10 @@ class _AdminRescueRequestsScreenState extends State<AdminRescueRequestsScreen>
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        icon: const Icon(Icons.verified_user_outlined, color: Colors.green),
+        icon: const Icon(
+          Icons.verified_user_outlined,
+          color: AppColors.pending,
+        ),
         title: const Text('อนุมัติหน่วยกู้ภัย'),
         content: Text(
           'ยืนยันอนุมัติ $name เป็นหน่วยกู้ภัยหรือไม่?\n\n'
@@ -155,7 +158,10 @@ class _AdminRescueRequestsScreenState extends State<AdminRescueRequestsScreen>
             child: const Text('ยกเลิก'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
             onPressed: () => Navigator.pop(context, true),
             child: const Text('ปฏิเสธ'),
           ),
@@ -206,7 +212,10 @@ class _AdminRescueRequestsScreenState extends State<AdminRescueRequestsScreen>
             child: const Text('ยกเลิก'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
             onPressed: () => Navigator.pop(context, true),
             child: const Text('เพิกถอนสิทธิ์'),
           ),
@@ -331,7 +340,7 @@ class _RequestList extends StatelessWidget {
   Widget build(BuildContext context) {
     if (requests.isEmpty) {
       return Center(
-        child: Text(emptyText, style: const TextStyle(color: AppColors.muted)),
+        child: Text(emptyText, style: TextStyle(color: context.colors.muted)),
       );
     }
 
@@ -403,9 +412,9 @@ class _RequestCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: context.colors.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: context.colors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -416,7 +425,7 @@ class _RequestCard extends StatelessWidget {
           ),
           Text(
             'role ปัจจุบัน: $role',
-            style: const TextStyle(color: AppColors.muted, fontSize: 12),
+            style: TextStyle(color: context.colors.muted, fontSize: 12),
           ),
           const SizedBox(height: 14),
           _DataLine(
@@ -505,7 +514,7 @@ class _DataLine extends StatelessWidget {
             width: 104,
             child: Text(
               label,
-              style: const TextStyle(color: AppColors.muted, fontSize: 12),
+              style: TextStyle(color: context.colors.muted, fontSize: 12),
             ),
           ),
           Expanded(

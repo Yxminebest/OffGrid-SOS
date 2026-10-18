@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/theme.dart';
 import '../../models/user.dart';
 import '../../services/auth_service.dart';
+import '../../services/sync_service.dart';
 import '../../widgets/password_strength_indicator.dart';
 
 class AccountSettingsScreen extends StatefulWidget {
@@ -436,9 +437,9 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: context.colors.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: context.colors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -446,7 +447,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(icon, color: AppColors.info),
+              Icon(icon, color: context.colors.info),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -462,8 +463,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                     const SizedBox(height: 2),
                     Text(
                       subtitle,
-                      style: const TextStyle(
-                        color: AppColors.muted,
+                      style: TextStyle(
+                        color: context.colors.muted,
                         fontSize: 12,
                         height: 1.4,
                       ),
@@ -491,12 +492,37 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
           children: [
+            ListTile(
+              leading: const Icon(Icons.cloud_download_outlined),
+              title: const Text('กู้คืนประวัติ Nearby จากคลาวด์'),
+              subtitle: const Text(
+                'ใช้บัญชีเดิมและอินเทอร์เน็ต รวมรูปและวิดีโอที่สำรองแล้ว',
+              ),
+              onTap: _busy
+                  ? null
+                  : () async {
+                      setState(() => _busy = true);
+                      try {
+                        final count = await SyncService.instance
+                            .restoreNearbyArchive();
+                        _show('กู้คืน $count รายการแล้ว');
+                      } catch (_) {
+                        _show(
+                          'กู้คืนไม่สำเร็จ กรุณาตรวจอินเทอร์เน็ตและการตั้งค่าคลาวด์',
+                          error: true,
+                        );
+                      } finally {
+                        if (mounted) setState(() => _busy = false);
+                      }
+                    },
+            ),
+
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: AppColors.surface,
+                color: context.colors.surface,
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.border),
+                border: Border.all(color: context.colors.border),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -506,20 +532,17 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
                   ),
                   const SizedBox(height: 6),
-                  const Text(
+                  Text(
                     'Create = สมัครสมาชิก • '
                     'Read = โหลดข้อมูลบัญชี • '
                     'Update = แก้ไขข้อมูล • '
                     'Delete = ลบบัญชีถาวร',
-                    style: TextStyle(color: AppColors.muted, height: 1.45),
+                    style: TextStyle(color: context.colors.muted, height: 1.45),
                   ),
                   const SizedBox(height: 10),
                   SelectableText(
                     'User ID: ${_current.id}',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: AppColors.muted,
-                    ),
+                    style: TextStyle(fontSize: 11, color: context.colors.muted),
                   ),
                   const SizedBox(height: 10),
                   OutlinedButton.icon(
@@ -591,10 +614,10 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: AppColors.pending.withValues(alpha: .10),
+                      color: context.colors.pending.withValues(alpha: .10),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: AppColors.pending.withValues(alpha: .35),
+                        color: context.colors.pending.withValues(alpha: .35),
                       ),
                     ),
                     child: Text(
@@ -774,10 +797,10 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
 
             const SizedBox(height: 8),
 
-            const Text(
+            Text(
               'การลบบัญชีเป็นการลบถาวร '
               'ต้องยืนยันด้วยรหัสผ่านปัจจุบันและคำว่า DELETE',
-              style: TextStyle(color: AppColors.muted, height: 1.45),
+              style: TextStyle(color: context.colors.muted, height: 1.45),
             ),
 
             const SizedBox(height: 12),

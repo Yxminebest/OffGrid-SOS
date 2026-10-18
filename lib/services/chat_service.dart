@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -24,8 +25,10 @@ class ChatService {
 
   Future<void> refreshInbox(AppUser me) async {
     if (!me.isMember) return;
+    if (_supabase.auth.currentUser?.id != me.id) return;
 
     final rows = await _supabase.rpc('chat_list_conversations');
+    if (_supabase.auth.currentUser?.id != me.id) return;
     final list = <LocalChatConversation>[];
 
     for (final raw in (rows as List)) {
@@ -39,8 +42,7 @@ class ChatService {
           photoPath: map['photo_path']?.toString(),
           lastMessage: map['last_message']?.toString(),
           lastMessageAt: _parseDate(map['last_message_at']),
-          unreadCount:
-              int.tryParse(map['unread_count']?.toString() ?? '') ?? 0,
+          unreadCount: int.tryParse(map['unread_count']?.toString() ?? '') ?? 0,
           peerLastReadAt: _parseDate(map['peer_last_read_at']),
           updatedAt: _parseDate(map['updated_at']) ?? DateTime.now(),
         ),
@@ -88,6 +90,7 @@ class ChatService {
     required AppUser me,
     required LocalChatConversation conversation,
     required void Function(Object error) onError,
+    VoidCallback? onReady,
   }) {
     return _supabase
         .from('messages')
@@ -104,6 +107,7 @@ class ChatService {
               currentUserName: me.fullName,
               peerName: conversation.displayName,
             );
+            onReady?.call();
             await markRead(conversation.id);
             unawaited(refreshInbox(me));
           } catch (e) {
@@ -111,7 +115,6 @@ class ChatService {
           }
         }, onError: onError);
   }
-
 
   Stream<List<Map<String, dynamic>>> conversationSignalStream() {
     return _supabase
@@ -130,7 +133,9 @@ class ChatService {
   Stream<List<Map<String, dynamic>>> reactionStream(String conversationId) {
     return _supabase
         .from('message_reactions')
-        .stream(primaryKey: ['conversation_id', 'message_id', 'user_id', 'emoji'])
+        .stream(
+          primaryKey: ['conversation_id', 'message_id', 'user_id', 'emoji'],
+        )
         .eq('conversation_id', conversationId);
   }
 
@@ -161,14 +166,11 @@ class ChatService {
       return;
     }
 
-    await _supabase.from('chat_typing').upsert(
-      <String, dynamic>{
-        'conversation_id': conversationId,
-        'user_id': user.id,
-        'updated_at': DateTime.now().toUtc().toIso8601String(),
-      },
-      onConflict: 'conversation_id,user_id',
-    );
+    await _supabase.from('chat_typing').upsert(<String, dynamic>{
+      'conversation_id': conversationId,
+      'user_id': user.id,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    }, onConflict: 'conversation_id,user_id');
   }
 
   Future<void> toggleReaction({

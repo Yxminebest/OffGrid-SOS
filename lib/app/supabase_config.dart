@@ -24,10 +24,18 @@ class SupabaseConfig {
   static const String iosRedirect =
       'com.kittaporn.offgridsos://login-callback/';
 
-  static String get emailRedirectTo => kIsWeb ? webRedirect : iosRedirect;
+  static const String androidRedirect =
+      'com.kittaporn.offgridsos://login-callback/';
+
+  static String get mobileRedirect =>
+      defaultTargetPlatform == TargetPlatform.android
+      ? androidRedirect
+      : iosRedirect;
+
+  static String get emailRedirectTo => kIsWeb ? webRedirect : mobileRedirect;
 
   static String get passwordRecoveryRedirectTo =>
-      kIsWeb ? webRedirect : iosRedirect;
+      kIsWeb ? webRedirect : mobileRedirect;
 
   static bool get isConfigured => url.isNotEmpty && publishableKey.isNotEmpty;
 }
