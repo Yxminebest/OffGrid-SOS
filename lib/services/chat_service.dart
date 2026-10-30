@@ -4,20 +4,47 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../data/models/local_chat_conversation.dart';
+import '../data/local/local_database.dart';
 import '../data/repositories/conversation_repository.dart';
 import '../data/repositories/message_repository.dart';
 import '../models/chat_user.dart';
 import '../models/user.dart';
 
 class ChatService {
-  ChatService._();
+  ChatService({this.client, LocalDatabase? local})
+    : _conversations = ConversationRepository(local: local),
+      _messages = MessageRepository(local: local);
 
-  static final ChatService instance = ChatService._();
+  static final ChatService instance = ChatService();
 
-  final ConversationRepository _conversations = ConversationRepository();
-  final MessageRepository _messages = MessageRepository();
+  final SupabaseClient? client;
+  final ConversationRepository _conversations;
+  final MessageRepository _messages;
 
-  SupabaseClient get _supabase => Supabase.instance.client;
+  SupabaseClient get _supabase => client ?? Supabase.instance.client;
+
+  /// Cache inbox deliveries before the user opens a room. A limited inbox batch
+  /// is not a complete room snapshot, so never reconcile/delete missing rows.
+  Future<void> cacheInboxMessages(
+    AppUser me,
+    List<Map<String, dynamic>> rows,
+  ) async {
+    bool current() => me.isMember && _supabase.auth.currentUser?.id == me.id;
+    if (!current()) return;
+    final rooms = {
+      for (final c in await _conversations.listForUser(me.id)) c.id: c,
+    };
+    for (final row in rows) {
+      if (!current()) return;
+      final room = rooms[row['conversation_id']];
+      if (room == null) continue;
+      await _messages.upsertFromCloud(
+        ownerLocalId: me.id,
+        cloud: row,
+        senderName: row['sender_id'] == me.id ? me.fullName : room.displayName,
+      );
+    }
+  }
 
   Stream<List<LocalChatConversation>> watchInbox(String ownerLocalId) {
     return _conversations.watchForUser(ownerLocalId);
@@ -67,11 +94,17 @@ class ChatService {
     required AppUser me,
     required ChatUser peer,
   }) async {
+    if (_supabase.auth.currentUser?.id != me.id) {
+      throw StateError('บัญชีเปลี่ยนแล้ว');
+    }
     final conversationId = await _supabase.rpc(
       'chat_get_or_create_direct',
       params: <String, dynamic>{'p_other_user': peer.id},
     );
 
+    if (_supabase.auth.currentUser?.id != me.id) {
+      throw StateError('บัญชีเปลี่ยนแล้ว');
+    }
     final conversation = LocalChatConversation(
       id: conversationId.toString(),
       ownerLocalId: me.id,
@@ -99,6 +132,7 @@ class ChatService {
         .order('created_at')
         .listen((rows) async {
           try {
+            if (_supabase.auth.currentUser?.id != me.id) return;
             await _messages.reconcileCloud(
               ownerLocalId: me.id,
               conversationId: conversation.id,
@@ -107,6 +141,7 @@ class ChatService {
               currentUserName: me.fullName,
               peerName: conversation.displayName,
             );
+            if (_supabase.auth.currentUser?.id != me.id) return;
             onReady?.call();
             await markRead(conversation.id);
             unawaited(refreshInbox(me));

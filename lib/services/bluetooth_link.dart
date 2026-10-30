@@ -4,12 +4,14 @@ class BluetoothLink {
   static final instance = BluetoothLink();
   static const _channel = MethodChannel('com.offgridsos/bluetooth');
   bool running = false;
+  int _generation = 0;
   Future<void> Function(String id, String name)? onConnected;
   void Function(String id)? onDisconnected;
   void Function(String id, Uint8List bytes)? onBytes;
   Future<bool> start() async {
+    final generation = ++_generation;
     _channel.setMethodCallHandler((call) async {
-      if (call.method != 'event') return;
+      if (generation != _generation || call.method != 'event') return;
       final args = Map<String, dynamic>.from(call.arguments as Map);
       final id = args['id'] as String;
       switch (args['kind']) {
@@ -22,8 +24,11 @@ class BluetoothLink {
       }
     });
     try {
-      running = await _channel.invokeMethod<bool>('start') ?? false;
+      final started = await _channel.invokeMethod<bool>('start') ?? false;
+      if (generation != _generation) return false;
+      running = started;
     } catch (_) {
+      if (generation != _generation) return false;
       running = false;
     }
     return running;
@@ -42,6 +47,8 @@ class BluetoothLink {
       _channel.invokeMethod('disconnect', {'id': id});
   Future<void> settings() => _channel.invokeMethod('settings');
   Future<void> stop() async {
+    _generation++;
+    running = false;
     try {
       await _channel.invokeMethod<void>('stop');
     } catch (_) {}

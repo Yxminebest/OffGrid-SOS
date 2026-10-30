@@ -12,6 +12,14 @@ const me = AppUser(
   lastName: 'Test',
   isMember: false,
 );
+
+class _CameraFile extends XFile {
+  _CameraFile(super.path, {this.size = 1024});
+  final int size;
+  @override
+  Future<int> length() async => size;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() {
@@ -36,7 +44,7 @@ void main() {
             )['peerId'],
             'peer-1',
           );
-          return XFile('/camera/photo.jpg');
+          return _CameraFile('/camera/photo.jpg');
         },
         savePhoto: (user, file, destination) async {
           saved = destination;
@@ -119,4 +127,52 @@ void main() {
       expect(prefs.containsKey(ChatCameraService.pendingKey), isFalse);
     },
   );
+  test(
+    'recorded video keeps type and unified destination through recovery save',
+    () async {
+      Map<String, dynamic>? saved;
+      final camera = ChatCameraService(
+        pickVideo: (source) async {
+          expect(source, ImageSource.camera);
+          return _CameraFile('/camera/video.mp4');
+        },
+        savePhoto: (_, _, destination) async {
+          saved = destination;
+        },
+      );
+      await camera.capture(
+        me,
+        video: true,
+        unified: true,
+        unifiedDevice: 'peer',
+        unifiedUser: 'member',
+        conversationId: 'room',
+      );
+      expect(saved!['type'], 'video');
+      expect(saved!['unifiedDevice'], 'peer');
+      expect(saved!['conversationId'], 'room');
+      expect(
+        (await SharedPreferences.getInstance()).containsKey(
+          ChatCameraService.pendingKey,
+        ),
+        isFalse,
+      );
+    },
+  );
+  test('oversized recorded video does not block the next capture', () async {
+    final camera = ChatCameraService(
+      pickVideo: (_) async =>
+          _CameraFile('/camera/large.mp4', size: 26 * 1024 * 1024),
+    );
+    await expectLater(
+      camera.capture(me, video: true, peerId: 'peer'),
+      throwsStateError,
+    );
+    expect(
+      (await SharedPreferences.getInstance()).containsKey(
+        ChatCameraService.pendingKey,
+      ),
+      isFalse,
+    );
+  });
 }

@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:offgrid_sos/widgets/location_map_screen.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,6 +14,7 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
     AppNotifications.instance.foreground = true;
     AppNotifications.instance.activeThread = null;
+    AppNotifications.instance.activeThreadAliases.clear();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(AppNotifications.channel, null);
   });
@@ -45,7 +49,7 @@ void main() {
   });
 
   testWidgets(
-    'location sheet shows coordinates and copies them without opening Maps',
+    'location opens an internal map and copies coordinates without another app',
     (tester) async {
       String? copied;
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -56,16 +60,33 @@ void main() {
             return null;
           });
       await tester.pumpWidget(
-        const MaterialApp(
+        MaterialApp(
           home: Scaffold(
-            body: LocationActions(latitude: 13.730000, longitude: 100.541000),
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => LocationActions.show(
+                  context,
+                  13.73,
+                  100.541,
+                  tileProvider: _TestTiles(),
+                ),
+                child: const Text('เปิดตำแหน่งบนแผนที่'),
+              ),
+            ),
           ),
         ),
       );
       await tester.tap(find.text('เปิดตำแหน่งบนแผนที่'));
       await tester.pumpAndSettle();
       expect(find.text('13.730000, 100.541000'), findsOneWidget);
-      expect(find.text('เปิดแอปแผนที่'), findsOneWidget);
+      expect(find.byType(FlutterMap), findsOneWidget);
+      expect(find.text('ตำแหน่งบนแผนที่'), findsOneWidget);
+      final marker = tester
+          .widget<MarkerLayer>(find.byType(MarkerLayer))
+          .markers
+          .single;
+      expect(marker.point.latitude, 13.73);
+      expect(marker.point.longitude, 100.541);
       await tester.tap(find.text('คัดลอกพิกัด'));
       await tester.pumpAndSettle();
       expect(copied, '13.730000, 100.541000');
@@ -74,6 +95,69 @@ void main() {
           .setMockMethodCallHandler(SystemChannels.platform, null);
     },
   );
+  testWidgets(
+    'map controls preserve the saved point and recover tile failures',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: LocationMapScreen(
+            latitude: 13.73,
+            longitude: 100.541,
+            tileProvider: _TestTiles(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      var layer = tester.widget<TileLayer>(find.byType(TileLayer));
+      layer.errorTileCallback!(
+        _FakeTile(),
+        StateError('offline'),
+        StackTrace.current,
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(find.textContaining('โหลดภาพแผนที่บางส่วนไม่ได้'), findsOneWidget);
+      expect(find.text('13.730000, 100.541000'), findsOneWidget);
+      await tester.ensureVisible(find.text('ลองโหลดแผนที่อีกครั้ง'));
+      await tester.tap(find.text('ลองโหลดแผนที่อีกครั้ง'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('โหลดภาพแผนที่บางส่วนไม่ได้'), findsNothing);
+      await tester.tap(find.byTooltip('ซูมเข้า'));
+      await tester.pumpAndSettle();
+      final map = tester.widget<FlutterMap>(find.byType(FlutterMap));
+      expect(map.mapController!.camera.zoom, 17);
+      await tester.tap(find.byTooltip('กลับไปยังหมุด'));
+      await tester.pumpAndSettle();
+      expect(map.mapController!.camera.zoom, 16);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('map fits a small screen with large text', (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: const TextScaler.linear(1.8)),
+          child: child!,
+        ),
+        home: LocationMapScreen(
+          latitude: 13.73,
+          longitude: 100.541,
+          tileProvider: _TestTiles(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.byType(FlutterMap), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
   test(
     'active foreground thread suppresses alerts but background receipt posts a notification',
     () async {
@@ -105,6 +189,38 @@ void main() {
       expect((calls.single.arguments as Map)['text'], 'background text');
     },
   );
+  test(
+    'unified active room suppresses both radio and cloud alerts only in foreground',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(AppNotifications.channel, (call) async {
+            calls.add(call);
+            return null;
+          });
+      final n = AppNotifications.instance;
+      n.activeThreadAliases.addAll(['device-peer', 'cloud-conversation']);
+      n.foreground = true;
+      for (final thread in ['device-peer', 'cloud-conversation']) {
+        await n.show(
+          id: 'same-id',
+          title: 'Peer',
+          text: 'hello',
+          thread: thread,
+        );
+      }
+      expect(calls, isEmpty);
+      n.foreground = false;
+      await n.show(
+        id: 'same-id',
+        title: 'Peer',
+        text: 'hello',
+        thread: 'cloud-conversation',
+      );
+      expect(calls, hasLength(1));
+    },
+  );
   test('notification platform failures do not lose chat processing', () async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -118,3 +234,17 @@ void main() {
     );
   });
 }
+
+class _TestTiles extends TileProvider {
+  @override
+  ImageProvider getImage(
+    TileCoordinates coordinates,
+    TileLayer options,
+  ) => MemoryImage(
+    base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    ),
+  );
+}
+
+class _FakeTile extends Fake implements TileImage {}

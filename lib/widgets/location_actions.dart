@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'location_map_screen.dart';
 
 class LocationActions extends StatelessWidget {
   const LocationActions({
@@ -8,9 +9,11 @@ class LocationActions extends StatelessWidget {
     required this.latitude,
     required this.longitude,
     this.compact = false,
+    this.accuracy,
   });
   final double latitude, longitude;
   final bool compact;
+  final double? accuracy;
   static String recordedAt(DateTime value) {
     final time = value.toLocal();
     String two(int n) => n.toString().padLeft(2, '0');
@@ -49,62 +52,21 @@ class LocationActions extends StatelessWidget {
     return false;
   }
 
-  static Future<void> show(BuildContext context, double lat, double lng) async {
+  static Future<void> show(
+    BuildContext context,
+    double lat,
+    double lng, {
+    TileProvider? tileProvider,
+    double? accuracy,
+  }) async {
     if (!valid(lat, lng)) return;
-    final point = '${lat.toStringAsFixed(6)}, ${lng.toStringAsFixed(6)}';
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (sheet) => SafeArea(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  'พิกัดที่บันทึกไว้',
-                  style: Theme.of(sheet).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 12),
-                SelectableText(point),
-                const SizedBox(height: 12),
-                const Text(
-                  'พิกัดนี้อ่านและคัดลอกได้แม้ออฟไลน์ ส่วนภาพแผนที่และเส้นทางขึ้นกับข้อมูลออฟไลน์ที่มีในแอปแผนที่',
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.copy_outlined),
-                  label: const Text('คัดลอกพิกัด'),
-                  onPressed: () async {
-                    await Clipboard.setData(ClipboardData(text: point));
-                    if (sheet.mounted) {
-                      ScaffoldMessenger.of(sheet).showSnackBar(
-                        const SnackBar(content: Text('คัดลอกพิกัดแล้ว')),
-                      );
-                    }
-                  },
-                ),
-                FilledButton.icon(
-                  icon: const Icon(Icons.map_outlined),
-                  label: const Text('เปิดแอปแผนที่'),
-                  onPressed: () async {
-                    final opened = await open(lat, lng);
-                    if (!opened && sheet.mounted) {
-                      ScaffoldMessenger.of(sheet).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'เปิดแอปแผนที่ไม่ได้ ยังสามารถคัดลอกพิกัดด้านบนได้',
-                          ),
-                        ),
-                      );
-                    }
-                  },
-                ),
-              ],
-            ),
-          ),
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => LocationMapScreen(
+          latitude: lat,
+          longitude: lng,
+          targetAccuracy: accuracy,
+          tileProvider: tileProvider,
         ),
       ),
     );
@@ -114,14 +76,14 @@ class LocationActions extends StatelessWidget {
   Widget build(BuildContext context) => compact
       ? TextButton.icon(
           onPressed: valid(latitude, longitude)
-              ? () => show(context, latitude, longitude)
+              ? () => show(context, latitude, longitude, accuracy: accuracy)
               : null,
           icon: const Icon(Icons.location_on_outlined, size: 18),
           label: const Text('พิกัด / แผนที่'),
         )
       : OutlinedButton.icon(
           onPressed: valid(latitude, longitude)
-              ? () => show(context, latitude, longitude)
+              ? () => show(context, latitude, longitude, accuracy: accuracy)
               : null,
           icon: const Icon(Icons.map_outlined),
           label: const Text('เปิดตำแหน่งบนแผนที่'),

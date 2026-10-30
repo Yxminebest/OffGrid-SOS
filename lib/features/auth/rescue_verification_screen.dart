@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import '../../services/home_return_policy.dart';
 
 import '../../app/theme.dart';
 import '../../services/auth_service.dart';
@@ -51,9 +52,11 @@ class _RescueVerificationScreenState extends State<RescueVerificationScreen> {
 
   Future<void> _pickDocument() async {
     try {
-      final file = await FilePicker.pickFile(
-        type: FileType.custom,
-        allowedExtensions: const ['jpg', 'jpeg', 'png', 'pdf'],
+      final file = await ExternalActivity.run(
+        () => FilePicker.pickFile(
+          type: FileType.custom,
+          allowedExtensions: const ['jpg', 'jpeg', 'png', 'pdf'],
+        ),
       );
 
       // ผู้ใช้กดยกเลิก
@@ -184,110 +187,120 @@ class _RescueVerificationScreenState extends State<RescueVerificationScreen> {
               const SizedBox(height: 18),
               _StatusCard(status: status, rejectionReason: rejectionReason),
             ],
-            const SizedBox(height: 22),
-            TextField(
-              controller: _organization,
-              decoration: const InputDecoration(
-                labelText: 'ชื่อหน่วยงาน *',
-                prefixIcon: Icon(Icons.apartment_rounded),
+            if (status == 'approved') ...[
+              const SizedBox(height: 16),
+              const Text(
+                'คุณได้รับสิทธิ์หน่วยกู้ภัยแล้ว เปิดโหมดกู้ภัยได้จากหน้าหลัก',
               ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _personnelId,
-              decoration: const InputDecoration(
-                labelText: 'รหัสประจำตัวเจ้าหน้าที่ *',
-                prefixIcon: Icon(Icons.badge_outlined),
+            ] else ...[
+              const SizedBox(height: 22),
+              TextField(
+                controller: _organization,
+                decoration: const InputDecoration(
+                  labelText: 'ชื่อหน่วยงาน *',
+                  prefixIcon: Icon(Icons.apartment_rounded),
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _note,
-              minLines: 3,
-              maxLines: 5,
-              decoration: const InputDecoration(
-                labelText: 'หมายเหตุ',
-                prefixIcon: Icon(Icons.notes_rounded),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _personnelId,
+                decoration: const InputDecoration(
+                  labelText: 'รหัสประจำตัวเจ้าหน้าที่ *',
+                  prefixIcon: Icon(Icons.badge_outlined),
+                ),
               ),
-            ),
-            const SizedBox(height: 18),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: context.colors.surface,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: context.colors.border),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _note,
+                minLines: 3,
+                maxLines: 5,
+                decoration: const InputDecoration(
+                  labelText: 'หมายเหตุ',
+                  prefixIcon: Icon(Icons.notes_rounded),
+                ),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Text(
-                    'เอกสารยืนยัน *',
-                    style: TextStyle(fontWeight: FontWeight.w900),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    'รองรับ JPG, PNG หรือ PDF ขนาดไม่เกิน 10 MB',
-                    style: TextStyle(color: context.colors.muted, fontSize: 12),
-                  ),
-                  const SizedBox(height: 12),
-                  OutlinedButton.icon(
-                    onPressed: _busy ? null : _pickDocument,
-                    icon: const Icon(Icons.upload_file_rounded),
-                    label: Text(
-                      _documentName == null ? 'เลือกเอกสาร' : 'เปลี่ยนเอกสาร',
+              const SizedBox(height: 18),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: context.colors.surface,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: context.colors.border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text(
+                      'เอกสารยืนยัน *',
+                      style: TextStyle(fontWeight: FontWeight.w900),
                     ),
-                  ),
-                  if (_documentName != null) ...[
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.description_outlined,
-                          color: context.colors.info,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            _documentName!,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: _busy
-                              ? null
-                              : () {
-                                  setState(() {
-                                    _documentBytes = null;
-                                    _documentName = null;
-                                    _documentMimeType = null;
-                                  });
-                                },
-                          icon: const Icon(Icons.close_rounded),
-                        ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 18),
-            FilledButton.icon(
-              onPressed: _busy || status == 'pending' ? null : _submit,
-              icon: const Icon(Icons.send_rounded),
-              label: _busy
-                  ? const SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.5,
-                        color: Colors.white,
+                    const SizedBox(height: 5),
+                    Text(
+                      'รองรับ JPG, PNG หรือ PDF ขนาดไม่เกิน 10 MB',
+                      style: TextStyle(
+                        color: context.colors.muted,
+                        fontSize: 12,
                       ),
-                    )
-                  : Text(
-                      status == 'rejected' ? 'ส่งคำขอใหม่' : 'ส่งคำขอตรวจสอบ',
                     ),
-            ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: _busy ? null : _pickDocument,
+                      icon: const Icon(Icons.upload_file_rounded),
+                      label: Text(
+                        _documentName == null ? 'เลือกเอกสาร' : 'เปลี่ยนเอกสาร',
+                      ),
+                    ),
+                    if (_documentName != null) ...[
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.description_outlined,
+                            color: context.colors.info,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _documentName!,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: _busy
+                                ? null
+                                : () {
+                                    setState(() {
+                                      _documentBytes = null;
+                                      _documentName = null;
+                                      _documentMimeType = null;
+                                    });
+                                  },
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: _busy || status == 'pending' ? null : _submit,
+                icon: const Icon(Icons.send_rounded),
+                label: _busy
+                    ? const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Text(
+                        status == 'rejected' ? 'ส่งคำขอใหม่' : 'ส่งคำขอตรวจสอบ',
+                      ),
+              ),
+            ],
           ],
         ),
       ),

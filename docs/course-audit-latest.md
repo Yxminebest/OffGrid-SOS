@@ -1,88 +1,64 @@
 # สถานะล่าสุดเทียบโจทย์ Off-Grid SOS & Nearby Share
 
-ตรวจและเพิ่มโค้ด 18 ตุลาคม 2569 รุ่น **0.4.0+9**
-รายงานนี้แทนการตรวจรุ่น 0.3.3+8; เอกสารรุ่นก่อนเป็นประวัติ
+ตรวจวันที่ 24 ตุลาคม 2569 รุ่น **0.8.0+18**
 
-## ผลตรวจ
+## ผลตรวจโค้ด
 
-| รายการ | ผล |
-|---|---|
-| Flutter analyzer | ไม่พบ issues |
-| Automated app tests | 91 ผ่าน |
-| PostgreSQL จำลอง | Bootstrap + migration ซ้ำได้; 15 access/role/cascade checks ผ่าน |
-| Backend จริง | ติดตั้ง 3 migrations + delete-account v5; SQL regression 32 assertions และ HTTP 4 checks ผ่าน; รอ session/app E2E |
-| วิทยุจริง | ผู้ใช้เคยส่งข้อความสองเครื่องในรุ่นก่อน; รุ่น 9 ยังรอทดสอบ Galaxy/Y33s และ 3 โหนด |
-| GitHub | รวม source รุ่น 9, tests, migrations และเอกสารในสาขา main; ตรวจ commit history สำหรับ revision ล่าสุด |
-| APK | บิลด์/ตรวจลายเซ็นผ่าน; รายละเอียด/hash ที่ `release-v9.md`; ยังไม่ได้ติดตั้งบนโทรศัพท์ |
-| Android package | คง com.example.offgrid_sos, API 24+, signing เดิมสำหรับอัปเดตเครื่องทดสอบ |
+- Flutter analyzer: ไม่พบปัญหา
+- Automated app tests: พักการรันรุ่น 18 ตามคำขอผู้ใช้; ผล 165 เคสผ่านเป็นของรุ่น 17
+- Supabase: 18 ตาราง public เปิด RLS, 4 buckets private; รุ่น 18 เพิ่ม private issuer table, service-only RPC และ Edge Function mesh-attestation version 2 พร้อม migrations สองไฟล์
+- Security advisor: ต้องเปิด leaked-password protection ใน Auth settings หากแผนรองรับ; performance มี unused indexes 15 รายการระดับ INFO เก็บไว้ รายละเอียด `release-v17.md`
+- ภาพทดสอบสองเครื่องจากผู้ใช้: ยืนยันภาพข้อความ/รูป/SOS/สถานะกู้ภัยในรุ่นก่อนหน้า ไม่ใช้แทนผลทดสอบวิทยุรุ่น 11 หรือสามเครื่องจริง
+- APK และขอบเขตแต่ละรุ่น: `release-v10.md`, `release-v11.md`, `release-v12.md`, `release-v13.md`, `release-v16.md`
 
 ## เทียบข้อกำหนด
 
-| ข้อกำหนด | โค้ดล่าสุด | หลักฐาน/สิ่งที่ต้องทดสอบจริง |
+| ข้อกำหนด | โค้ดล่าสุด | การตรวจ/สิ่งที่ยังต้องพิสูจน์ |
 |---|---|---|
-| D2D ไม่มี cellular/hotspot | Nearby P2P_CLUSTER / secure Bluetooth RFCOMM | เปิดวิทยุที่ใช้งาน แต่ไม่ต้องเชื่อม AP; รอ radio จริง |
-| แชทข้อความ/รูป/วิดีโอออฟไลน์ | มีคิว Sembast, chunks 12 KiB, SHA-256, resume, durable files ≤25 MB | tests ข้อความ/สื่อ/ขาดช่วง/ส่งซ้ำผ่าน |
-| กล้องโทรศัพท์ | เลือกกล้อง, กู้คืน Android lost result, stable message ID | ผู้ใช้ยืนยันกล้องรุ่นก่อน; regression ผ่าน |
-| สมาชิก/ข้อมูล cloud | Auth/profile/roles, cloud chat/media, SOS sync | ติดตั้งและตรวจฐานข้อมูลจริงแล้ว; รอทดสอบ signup/email และ sync ด้วย session จากแอป |
-| SOS toggle สีแดงบนเครื่องอื่น | มีประกาศ discovery และส่ง payload พร้อม revision หลังจับคู่ | discovery/parser/replay tests; รอวัด latency วิทยุ |
-| กดสถานะ SOS เข้าแชท | Nearby แตะชื่อ/ปุ่มแชท, Rescue แตะการ์ดเข้าแชทโดยตรง | UI test ผ่าน; ปุ่มพิกัดยังแยกใช้ได้ |
-| Rescue toggle สีน้ำเงินบนเครื่องอื่น | remote active card, discovery marker, replay/heartbeat และ off revision | service/UI tests; ทั้งหน้าคงธีมเหลือง |
-| SOS ข้อความ+พิกัดเมื่อไม่มี Internet | บันทึกพิกัดล่าสุดพร้อมเวลา ส่งผ่านลิงก์จับคู่และ relay | tests ผ่าน; ถ้า GPS หาไม่ได้ใช้ last-known หรือระบุไม่มีพิกัด |
-| คิว local แล้ว sync เมื่อออนไลน์ | cloud queue เดิม + Nearby private archive/สื่อ/backoff | HTTP tests ผ่าน; migration ติดตั้งบนโปรเจกต์จริงแล้ว; รอ app E2E |
-| สถานะค้างส่ง/ส่งแล้ว/ซิงก์แล้ว | ส่งผ่าน transport, ACK รับถึง DB และสำรอง cloud แยกกัน | ไม่ใช้ cloud success แทน ACK ผู้รับ |
-| Offline-first ฟีเจอร์หลัก | local histories/SOS/messages/media/queue | การสมัครบัญชีใหม่/ยืนยันอีเมลต้อง Internet; บัญชีเดิม/Guest ใช้ออฟไลน์ |
-| เครือข่ายเป็นทอดๆ | route path จำกัด 6 ทอด, encrypted private frames, dedup, ACK, withdrawal/expiry | A–B–C text/image/video ผ่านจำลอง; **รอ 3 เครื่องจริง** |
-| ทดสอบอย่างน้อยสองเครื่อง | ชุดทดสอบรวมและแบบบันทึกผลพร้อม | ยังต้องเก็บผลรุ่น 9 จริงตาม docs/testing-v9.md |
+| D2D ไม่ใช้ cellular/hotspot | Nearby P2P_CLUSTER และ secure Bluetooth RFCOMM | ทดสอบวิทยุจริงตาม checklist; ต้องเปิดวิทยุที่ใช้ ไม่ต้องต่อ Internet |
+| ข้อความ/รูป/วิดีโอ/กล้อง | คิว Sembast, durable files, chunks/hash/resume, ACK | จำลอง 2–3 โหนดผ่าน; ไฟล์ไม่เกิน 25 MB |
+| สมาชิก/คลาวด์ | Auth/profile/roles, chat/media/SOS/archive sync | ลงทะเบียน/อนุมัติใหม่ใช้ Internet; ตัวตนที่บันทึกไว้และ Guest ใช้ D2D ได้ |
+| เปิดบัญชีเดิมขณะไม่มีเน็ต | อ่าน secure local identity ก่อน HTTP; cloud session หมดอายุไม่ตัด D2D | regression ผ่าน; ต้องทดสอบ cold launch เครื่องจริง |
+| SOS สีแดงและแตะเข้าแชท | เลือกเหตุฉุกเฉินหลายข้อโดยไม่ต้องพิมพ์, discovery marker + payload/revision หลังจับคู่, สั่งเริ่มวิทยุเมื่อเปิด SOS | ไม่รับประกันการส่งถ้ายังไม่มีคู่เชื่อมต่อ/พ้นระยะ |
+| Rescue สีน้ำเงิน | เปลี่ยนเฉพาะสถานะโหมดที่เปิดใช้งาน, role ตรวจจากระบบ/แคชที่เคยได้รับสิทธิ์ | เปิด/ปิดจำลองและ UI ผ่าน; รอวิทยุรุ่นนี้ |
+| พิกัด SOS/แชทออฟไลน์ | SavedLocation พร้อมเวลา/last-known, direct encrypted location card | พิกัดผ่าน 3 โหนดและ ACK ผ่าน |
+| เปิดพิกัดในแอป | แผนที่ถนนจริงปทุมธานี 783 ไทล์ติดใน APK + GPS หมุดของฉัน/หมุดเป้าหมาย | แสดงถนน/ชื่อไทยออฟไลน์ในตัวทดสอบผ่าน; รอ GPS โทรศัพท์จริง รุ่น 12 ไม่มีเส้นทางเลี้ยวต่อเลี้ยว |
+| คิวและ sync เมื่อออนไลน์ | อยู่ในเครื่อง ไม่รอ cloud ก่อนตอบ UI; สำรองเมื่อ session/Internet ใช้ได้ | ทดสอบคิว/ย้อนกลับออนไลน์; ยังต้อง session/app E2E |
+| ค้างส่ง/ส่งแล้ว/ซิงก์แล้ว | ยืนยันรับถึง DB ปลายทางแยกจาก transport และ cloud archive | ACK loss ไม่สร้างข้อความซ้ำ |
+| Offline-first | ตัวตนเดิม/Guest, DB, ไฟล์, SOS, ประวัติ, ส่ง D2D | GPS/วิทยุ/สิทธิ์ Android/พื้นที่จัดเก็บยังต้องพร้อม |
+| เครือข่ายเป็นทอด ๆ | route จำกัด 6 ทอด, encrypted private frames, route withdrawal/expiry | จำลอง A–B–C ข้อความ/สื่อ/พิกัด/SOS ผ่าน; รอสามเครื่องจริง |
+| เริ่มใหม่/เส้นทางกลับมา | จำโหมดวิทยุ, คิวส่งต่อ, รหัสตัวตนเดิม, tombstone | ไม่อนุมัติจับคู่ใหม่แทนผู้ใช้; เคยกดหยุดเองจะไม่เปิดวิทยุใหม่ |
+| หลายคำขอจับคู่ | คิวแยกรหัสแต่ละเครื่อง ไม่ทับกันบน B | test ผ่าน; รอ native callback จริงสองคำขอ |
+| การแจ้งเตือน | local/in-app/foreground และผลอนุมัติผ่าน polling | offline ไม่ต้องใช้ push server สำหรับ D2D; force-stop ต้องเปิดแอปใหม่ |
+| ประวัติกู้ภัย | ประวัติคำขอ/ผลตรวจ + เคส SOS รวมที่หยุดแล้ว | แคชแยกบัญชีอ่านออฟไลน์ได้; ไม่อ้างว่าเคสหยุดแปลว่าช่วยเหลือสำเร็จ |
 
-## ขอบเขตของระบบหลายทอด
+## แชทรวม รุ่น 16
 
-เครื่องกลางต้องเปิดและมีลิงก์ต่อกันอยู่ การส่งไม่อาศัย Internet
-เส้นทางใช้ signed discovery identity และ pin กุญแจแบบ trust on first contact
-private payload ที่ผ่านตัวกลางเข้ารหัส X25519/AES-GCM ตัวกลางไม่เก็บข้อความไว้ในประวัติส่วนตัว
-SOS/Rescue เป็นประกาศสาธารณะในเครือข่าย ไม่ใช่แชทส่วนตัว
-ลิงก์โดยตรงใช้ช่องทางที่จับคู่ไว้ การรับรอง role บนเครื่องอื่นยังไม่ใช่ระบบ PKI ต่อต้านแอปปลอม
-ยังไม่ใช่ DTN ที่เครื่องกลางเก็บข้อความไปส่งขณะผู้ส่งและเส้นทางทั้งหมดหายไป
-คิวอยู่กับผู้ส่งและลองใหม่เมื่อกลับมาเชื่อมต่อ
+- ห้องเดียวสำหรับทุกช่องทาง รวมจาก ID บัญชีที่คู่เชื่อมต่อแจ้ง ไม่ใช้ชื่อแสดงผลเป็นตัวรวม
+- คิวเดิมของวิทยุและคลาวด์ใช้ message ID เดียวกันเมื่อส่งข้ามช่องทาง เก็บประวัติ/ไฟล์ออฟไลน์และแยก owner
+- กล้องรูป/วิดีโอ เลือกรูป/วิดีโอ แชร์ตำแหน่ง และเปิดแผนที่ในแชท
+- อ่าน RLS/ชนิดข้อมูลจริงของ Supabase แล้ว ใช้ messages + chat-media เดิม ไม่มี migration รุ่นนี้
+- หน้ารวมมี test ผู้ติดต่อหนึ่งรายจากสอง transport ไม่ซ้ำ; รอบทดสอบวิทยุและ cloud session บนสองเครื่องจริงยังจำเป็น
 
-## Backend และข้อมูลส่วนตัว
+## งานที่ยังเหลือ
 
-โปรเจกต์เดิมติดตั้ง 3 migrations แล้ว: hardening, Nearby archive และ private RPC wrappers
-ไฟล์ใน `supabase/migrations/` ตรงกับ migration history บน server
-`supabase/bootstrap.sql` ใช้สำหรับโปรเจกต์ใหม่เท่านั้น มี schema, RLS, member trigger,
-chat RPC, admin rescue RPC, private Storage policies และ Realtime publication
-Edge Function เดิมคง recent-auth check และเพิ่มล้าง bucket nearby-archive
-รอบถัดมาติดตั้งและตรวจฐานข้อมูลจริงแล้ว ดู `supabase-deployment-2026-10-18.md`
-ผลท้องถิ่นเดิมใช้ stubs; ผลจริงแยกเป็น SQL role/claims และ HTTP ที่ไม่ล็อกอิน ยังรอ session/app E2E
-อ่านวิธีติดตั้งและตรวจ JWT A/B/anon ที่ `backend-setup.md`
+รุ่น 18 เพิ่ม server-signed attestation, nonce proof-of-possession, เข้ารหัส private payload/ACK บนลิงก์ตรงด้วย, ลงลายเซ็น SOS/Rescue, เก็บ revision สถานะกู้ภัย และเตรียมสื่อออฟไลน์อัตโนมัติแล้ว อ่านรายละเอียดการย้ายรุ่น/ใบรับรอง 30 วันใน `release-v18.md`
+ตอนนี้ผู้ใช้พักการทดสอบ/ติดตั้งไว้ การตรวจ analyzer และการประกอบ APK ไม่แทนการทดสอบ protocol/app E2E รุ่นใหม่
 
-Nearby archive เป็นประวัติส่วนตัวของสมาชิก ไม่ส่ง online ไปหาผู้รับแทน D2D
-Guest ไม่อัปโหลดไปบัญชีอื่น การกู้คืนไม่เขียนทับคิว local ที่ยังไม่ส่ง และไม่ย้าย private keys
-ประวัติจากเครื่องเดิมที่กู้คืนไม่ถูกส่งซ้ำในนาม identity ใหม่
+รุ่น 17 แก้การให้วิทยุส่งก่อน HTTP ของทุกผู้ติดต่อ การเก็บเนื้อหา inbox ลง local DB พิกัดเก่า และ guard บัญชี/ข้อความว่างหรือยาวเกินกำหนดแล้ว ดู `release-v17.md` สำหรับข้อจำกัดไฟล์ที่ยังไม่ดาวน์โหลดและตัวตนวิทยุแบบ trust-on-first-contact
 
-## งานรายสัปดาห์
+1. ทดสอบรุ่นล่าสุดบนโทรศัพท์จริงสองและสามเครื่องทั้ง Nearby และ Bluetooth โดยปิด mobile data/ไม่ต่อ AP: `offline-two-three-devices-v11.md`
+2. ตรวจ Doze/ดับจอ/การประหยัดแบตเตอรี่ของแต่ละยี่ห้อ ระยะเชื่อมต่อ ความเร็วไฟล์ และ latency ของสถานะ SOS/Rescue
+3. ทำ app E2E เมื่อกลับมาออนไลน์: สมาชิก/อีเมล/อนุมัติสิทธิ์/Storage/ซิงก์คิวและประวัติ ตรวจว่าไม่ส่งซ้ำไปผู้รับผ่าน cloud archive
+4. เก็บภาพ/ผลทดสอบจริงและ demo 7–10 นาที พร้อม GitHub/APK/README; APK ยังใช้ชื่อ package และใบรับรองชุดทดสอบเดิม
 
-| สัปดาห์ | งานที่มี | หลักฐานที่ยังต้องเพิ่ม |
-|---|---|---|
-| 2 UX/UI | ปัญหา/กลุ่มเป้าหมาย/โฟลว์/Wireframe 5 หน้า, themes/logo/project folders | เอกสารจัดทำรอบนี้ ไม่อ้างส่งย้อนหลัง |
-| 3 Vertical slice | Auth, SOS CRUD/local→queue→cloud, schema/RLS/RPC sources, error handling | ฐานข้อมูลจริงผ่าน 32 assertions/HTTP 4 จุด; รอ Auth/Storage จากแอปจริง |
-| 4 Integrations | ข้อความ/สื่อ/กล้อง, in-app/foreground notifications, ค้นหา/กรอง | radio, permissions, background จริง |
-| 5 Polish/Test | 91 automated cases, 15 SQL checks, accessibility/UI, bug log, manual matrix 23 เคส | TalkBack/Doze, ผล 2–3 เครื่อง |
-| 6 Delivery | README, source, SQL/setup, APK, สคริปต์ demo 9 นาที | Backend deploy และจัด source ใน Git แล้ว; เหลือทดสอบเครื่องจริงและบันทึก manual demo |
+## ขอบเขตที่ไม่อ้างว่าใช้ได้ทุกสถานการณ์
 
-## สิ่งที่ยังไม่อ้างว่าสำเร็จ
+- A–B–C ต้องมีเครื่องกลางและเส้นทางที่เปิดเชื่อมต่ออยู่ ขาด B จะรอที่ผู้ส่ง ไม่ใช่ DTN ที่ B ถือข้อความไปส่งแทนหลัง A หายไป
+- ปิด Wi-Fi radio ได้เมื่อใช้ Bluetooth โดยตรง แต่ปิด Bluetooth และ Wi-Fi ทั้งคู่จะส่ง D2D ไม่ได้
+- force-stop/reboot/ระบบปิดกระบวนการต้องเปิดแอปใหม่ foreground service ไม่รับประกันทุกนโยบายพลังงาน
+- รุ่น 12 มีข้อมูลถนนออฟไลน์เฉพาะกรอบปทุมธานีและขอบใกล้เคียงติดมากับแอป ไม่มีแผนที่ทั่วประเทศไทยหรือระบบเส้นทางเลี้ยวต่อเลี้ยว GPS ยังต้องเปิดบริการตำแหน่ง ได้รับสิทธิ์ และจับสัญญาณได้
+- การอนุมัติสิทธิ์ใหม่หรือสร้างสมาชิกใหม่ต้องติดต่อระบบออนไลน์ เคยได้รับสิทธิ์แล้วใช้ D2D จากข้อมูลที่บันทึกไว้ได้ การกู้คืนตัวตนไม่สร้าง session คลาวด์ใหม่
+- หลักฐานการจำลองไม่แทนการทดสอบวิทยุ 3 เครื่องจริง และไม่ยืนยันเกรดแทนอาจารย์
 
-- แจ้งเตือนหลัง force-stop/reboot: foreground service ไม่ใช่ FCM; ต้องเปิดแอปอีกครั้ง
-- Google Maps แบบออฟไลน์: ขึ้นกับแผนที่ในเครื่อง แต่พิกัด/เวลา/คัดลอกในแอปใช้ได้
-- อายุแบตเตอรี่ ความเร็วรับส่ง และเวลาที่ discovery เปลี่ยนสี: ต้องวัดฮาร์ดแวร์จริง
-- การเผยแพร่ production: APK ยังใช้ key/package เดิมของชุดทดสอบ ไม่เปลี่ยนเพื่อรักษาการอัปเดตและข้อมูลเดิม
-- เกรด/ความครบถ้วนภาคปฏิบัติ: ยังต้องมีผลตาม checklist และการประเมินอาจารย์
-
-
-## ข้อสรุปสำหรับเทียบโจทย์อาจารย์
-
-ตอนนี้อยู่ช่วง Week 5 (Polish & Test) และเตรียม Week 6 (Final Delivery)
-มี implementation หลักตามรายการ แต่ยังไม่ยืนยันว่าจบโจทย์พิเศษจนกว่าจะมีผลวิทยุจริง
-อย่างน้อยสองเครื่อง และพิสูจน์หลายทอดด้วยสามเครื่อง
-การแสดงสถานะ SOS/Rescue ก่อนจับคู่ใช้ discovery marker; ข้อความและพิกัดส่งหลังจับคู่
-ยังไม่ได้วัดการปรากฏสถานะว่าเร็วเพียงใดบน Galaxy/Y33s
-ตรวจเอกสารรอบนี้พบข้อความค้างที่ยังบอกว่าไม่ได้ deploy backend จึงปรับให้ตรงผลติดตั้งจริงแล้ว
+อยู่ช่วง Week 5 (Polish & Test) และเตรียม Week 6 (Final Delivery) เอกสารรุ่นเก่าเป็นประวัติ ไม่ใช่สถานะล่าสุด

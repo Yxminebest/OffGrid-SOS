@@ -12,6 +12,7 @@ class AppNotifications with WidgetsBindingObserver {
   bool _observing = false;
   bool foreground = true;
   String? activeThread;
+  final activeThreadAliases = <String>{};
   bool get supported =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
@@ -83,7 +84,9 @@ class AppNotifications with WidgetsBindingObserver {
     String? thread,
   }) async {
     if (!supported ||
-        (foreground && activeThread == thread && thread != null)) {
+        (foreground &&
+            thread != null &&
+            (activeThread == thread || activeThreadAliases.contains(thread)))) {
       return;
     }
     try {

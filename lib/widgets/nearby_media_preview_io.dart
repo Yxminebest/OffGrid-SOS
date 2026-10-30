@@ -20,7 +20,7 @@ class NearbyMediaPreview extends StatelessWidget {
             context,
             MaterialPageRoute<void>(
               builder: (_) => Scaffold(
-                appBar: AppBar(title: Text(name)),
+                appBar: AppBar(title: const Text('รูปภาพ')),
                 body: Center(
                   child: InteractiveViewer(
                     child: Image.file(
@@ -35,15 +35,17 @@ class NearbyMediaPreview extends StatelessWidget {
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(10),
-            child: Image.file(
-              File(path),
-              height: 180,
-              width: 240,
-              fit: BoxFit.cover,
-              cacheWidth: 720,
-              errorBuilder: (_, _, _) => const Padding(
-                padding: EdgeInsets.all(16),
-                child: Text('เปิดรูปไม่ได้ ไฟล์อาจถูกลบ'),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 340, maxHeight: 440),
+              child: Image.file(
+                File(path),
+                width: 340,
+                fit: BoxFit.contain,
+                cacheWidth: 1440,
+                errorBuilder: (_, _, _) => const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('เปิดรูปไม่ได้ ไฟล์อาจถูกลบ'),
+                ),
               ),
             ),
           ),
@@ -60,11 +62,12 @@ class NearbyMediaPreview extends StatelessWidget {
           label: const Text('เล่นวิดีโอในเครื่อง'),
         ),
       const SizedBox(height: 6),
-      Text(
-        name,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontSize: 12),
+      Tooltip(
+        message: name,
+        child: Text(
+          type == 'image' ? 'รูปภาพ' : 'วิดีโอ',
+          style: const TextStyle(fontSize: 12),
+        ),
       ),
     ],
   );

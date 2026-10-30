@@ -37,6 +37,8 @@
 	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>ใช้ไมโครโฟนเพื่อบันทึกเสียงในวิดีโอที่คุณเลือกถ่ายเพื่อส่งแชท</string>
 	<key>NSCameraUsageDescription</key>
 	<string>ถ่ายรูปเพื่อส่งในห้องแชทและแจ้งข้อมูลขอความช่วยเหลือ</string>
 	<key>NSPhotoLibraryUsageDescription</key>

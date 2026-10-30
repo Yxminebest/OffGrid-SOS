@@ -69,6 +69,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
       );
       if (mesh.pendingPeer == peer) await mesh.approve(accepted == true);
       _dialogFor = null;
+      if (mounted) _changed();
     });
   }
 
@@ -190,7 +191,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
               children: [
                 const PageHeader(
                   title: 'คนใกล้เคียง',
-                  subtitle: 'จับคู่อุปกรณ์ แล้วสนทนาในแท็บแชท',
+                  subtitle: 'คุย ส่งรูป และแชร์ตำแหน่ง แม้ไม่มีอินเทอร์เน็ต',
                 ),
                 AppCard(
                   backgroundColor: context.colors.surfaceSoft,
@@ -213,7 +214,9 @@ class _NearbyScreenState extends State<NearbyScreen> {
                               children: [
                                 Text(
                                   mesh.running
-                                      ? 'Nearby กำลังทำงาน'
+                                      ? (mesh.connected.isNotEmpty
+                                            ? 'พร้อมสนทนาออฟไลน์'
+                                            : 'กำลังค้นหาคนใกล้เคียง')
                                       : 'เริ่มต้นการเชื่อมต่อ',
                                   style: Theme.of(
                                     context,
@@ -277,7 +280,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
                         ),
                       const SizedBox(height: 10),
                       Text(
-                        'ไม่ต้องมีอินเทอร์เน็ต • เปิด Bluetooth และวิทยุ Wi-Fi เพื่อให้ Nearby เลือกช่องทางที่ใช้ได้',
+                        'เปิด Wi-Fi และ Bluetooth ทั้งสองเครื่อง ไม่ต้องต่อเราเตอร์หรือฮอตสปอต',
                         style: TextStyle(
                           color: context.colors.muted,
                           fontSize: 12,
@@ -294,7 +297,25 @@ class _NearbyScreenState extends State<NearbyScreen> {
                     icon: const Icon(Icons.bluetooth_rounded),
                     label: const Text('ใช้ Bluetooth เมื่อปิด Wi-Fi'),
                   ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 12),
+                if (mesh.connected.isEmpty)
+                  AppCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'เชื่อมต่อใน 3 ขั้นตอน',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                        const SizedBox(height: 10),
+                        const Text(
+                          '1  เปิดค้นหาในแอปทั้งสองเครื่อง\n2  เลือกชื่อคนที่ต้องการติดต่อ\n3  ยืนยันรหัสตรงกัน แล้วเริ่มแชท',
+                          style: TextStyle(height: 1.9),
+                        ),
+                      ],
+                    ),
+                  ),
+                const SizedBox(height: 18),
                 ValueListenableBuilder<bool>(
                   valueListenable: AppNotifications.instance.enabled,
                   builder: (context, allowed, _) => allowed
@@ -353,18 +374,28 @@ class _NearbyScreenState extends State<NearbyScreen> {
                       padding: EdgeInsets.zero,
                       backgroundColor: mesh.discoveredModes[entry.key] == 'S'
                           ? Theme.of(context).colorScheme.errorContainer
-                          : mesh.discoveredModes[entry.key] == 'R'
+                          : (mesh.discoveredModes[entry.key] == 'R' &&
+                                mesh.identities[entry.key]?.verifiedRescuer ==
+                                    true)
                           ? const Color(0xFF1859A9)
                           : null,
                       child: ListTile(
-                        textColor: mesh.discoveredModes[entry.key] == 'R'
+                        textColor:
+                            (mesh.discoveredModes[entry.key] == 'R' &&
+                                mesh.identities[entry.key]?.verifiedRescuer ==
+                                    true)
                             ? Colors.white
                             : null,
                         leading: Icon(
                           mesh.connected.contains(entry.key)
                               ? Icons.bluetooth_connected_rounded
                               : Icons.phone_android_rounded,
-                          color: context.colors.info,
+                          color:
+                              (mesh.discoveredModes[entry.key] == 'R' &&
+                                  mesh.identities[entry.key]?.verifiedRescuer ==
+                                      true)
+                              ? Colors.white
+                              : context.colors.info,
                         ),
                         title: Text(entry.value),
                         subtitle: Text(
@@ -374,12 +405,22 @@ class _NearbyScreenState extends State<NearbyScreen> {
                                   'S' =>
                                     'SOS ขอความช่วยเหลือ • แตะเพื่อจับคู่และแชท',
                                   'R' =>
-                                    'ประกาศโหมดกู้ภัย • แตะเพื่อจับคู่และแชท',
+                                    'ประกาศกู้ภัย • จับคู่เพื่อตรวจใบรับรองและแชท',
                                   _ => 'พร้อมจับคู่',
                                 },
                         ),
                         trailing: mesh.connected.contains(entry.key)
-                            ? const Icon(Icons.chat_bubble_outline_rounded)
+                            ? Icon(
+                                Icons.chat_bubble_outline_rounded,
+                                color:
+                                    (mesh.discoveredModes[entry.key] == 'R' &&
+                                        mesh
+                                                .identities[entry.key]
+                                                ?.verifiedRescuer ==
+                                            true)
+                                    ? Colors.white
+                                    : context.colors.info,
+                              )
                             : TextButton(
                                 onPressed: () {
                                   _chatAfterPairing = entry.key;
@@ -410,7 +451,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
                 for (final entry in rescuers.entries.where(
                   (e) =>
                       (e.value.data['data'] as Map)['active'] == true &&
-                      mesh.peerForDevice(e.key) != null,
+                      mesh.isPeerRescueActive(e.key),
                 ))
                   Card(
                     color: const Color(0xFF1859A9),

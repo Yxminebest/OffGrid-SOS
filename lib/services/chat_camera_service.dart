@@ -8,12 +8,20 @@ import '../models/user.dart';
 import '../data/repositories/message_repository.dart';
 import 'nearby_mesh_service.dart';
 import 'sync_service.dart';
+import 'home_return_policy.dart';
+import 'unified_chat_service.dart';
 
 /// Remembers the destination before opening Android's camera Activity.
 /// Lost results are recovered for that same owner, never another signed-in user.
 class ChatCameraService {
-  ChatCameraService({this.pickPhoto, this.lostFiles, this.savePhoto});
+  ChatCameraService({
+    this.pickPhoto,
+    this.pickVideo,
+    this.lostFiles,
+    this.savePhoto,
+  });
   final Future<XFile?> Function(ImageSource source)? pickPhoto;
+  final Future<XFile?> Function(ImageSource source)? pickVideo;
   final Future<List<XFile>?> Function()? lostFiles;
   final Future<void> Function(
     AppUser me,
@@ -32,6 +40,10 @@ class ChatCameraService {
     String? peerName,
     String? caseId,
     String? conversationId,
+    bool video = false,
+    bool unified = false,
+    String? unifiedDevice,
+    String? unifiedUser,
   }) async {
     if (_working) return;
     _working = true;
@@ -43,6 +55,10 @@ class ChatCameraService {
         );
       }
       final destination = <String, dynamic>{
+        'type': video ? 'video' : 'image',
+        'unified': unified,
+        'unifiedDevice': ?unifiedDevice,
+        'unifiedUser': ?unifiedUser,
         'owner': me.id,
         'messageId': const Uuid().v4(),
         'peerId': ?peerId,
@@ -51,17 +67,30 @@ class ChatCameraService {
         'conversationId': ?conversationId,
       };
       await prefs.setString(pendingKey, jsonEncode(destination));
-      final image = pickPhoto != null
-          ? await pickPhoto!(ImageSource.camera)
-          : await _picker.pickImage(
-              source: ImageSource.camera,
-              maxWidth: 1920,
-              maxHeight: 1920,
-              imageQuality: 85,
-            );
+      final image = await ExternalActivity.run(
+        () async => video && pickVideo != null
+            ? await pickVideo!(ImageSource.camera)
+            : pickPhoto != null
+            ? await pickPhoto!(ImageSource.camera)
+            : video
+            ? await _picker.pickVideo(
+                source: ImageSource.camera,
+                maxDuration: const Duration(seconds: 30),
+              )
+            : await _picker.pickImage(
+                source: ImageSource.camera,
+                maxWidth: 2560,
+                maxHeight: 2560,
+                imageQuality: 92,
+              ),
+      );
       if (image == null) {
         await prefs.remove(pendingKey);
         return;
+      }
+      if (await image.length() > 25 * 1024 * 1024) {
+        await prefs.remove(pendingKey);
+        throw StateError('ไฟล์เกิน 25 MB กรุณาถ่ายวิดีโอให้สั้นลง');
       }
       destination['path'] = image.path;
       destination['name'] = image.name;
@@ -136,6 +165,24 @@ class ChatCameraService {
     if (mesh.ownerId != me.id || destination['owner'] != me.id) {
       throw StateError('บัญชีเปลี่ยนแล้ว รูปเก็บไว้รอกู้คืนในบัญชีเดิม');
     }
+    final type = destination['type'] as String? ?? 'image';
+    if (destination['unified'] == true) {
+      await UnifiedChatService.instance.send(
+        me,
+        ChatContact(
+          name: destination['peerName'] as String? ?? 'ผู้ติดต่อ',
+          device: destination['unifiedDevice'] as String?,
+          user: destination['unifiedUser'] as String?,
+          conversation: destination['conversationId'] as String?,
+        ),
+        path: image.path,
+        name: image.name,
+        type: type,
+        messageId: destination['messageId'] as String?,
+        caseId: destination['caseId'] as String?,
+      );
+      return;
+    }
     final peer = destination['peerId'];
     if (peer is String) {
       await mesh.sendAttachment(
@@ -143,7 +190,7 @@ class ChatCameraService {
         target: peer,
         path: image.path,
         name: image.name,
-        type: 'image',
+        type: type,
         peerName: destination['peerName'],
         caseId: destination['caseId'],
       );
@@ -158,10 +205,10 @@ class ChatCameraService {
         messageId: destination['messageId'],
         user: me,
         conversationId: conversation,
-        type: 'image',
-        content: '📷 รูปถ่าย',
+        type: type,
+        content: type == 'video' ? 'วิดีโอจากกล้อง' : '📷 รูปถ่าย',
         mediaName: image.name,
-        mediaMime: 'image/jpeg',
+        mediaMime: type == 'video' ? 'video/mp4' : 'image/jpeg',
         mediaBytes: await image.readAsBytes(),
       );
       unawaited(SyncService.instance.syncNow().catchError((Object _) {}));

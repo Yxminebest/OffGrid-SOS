@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../services/home_return_policy.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../app/theme.dart';
@@ -12,6 +13,9 @@ import '../../models/user.dart';
 import '../../services/auth_service.dart';
 import '../admin/admin_rescue_requests_screen.dart';
 import '../auth/rescue_verification_screen.dart';
+import '../../services/rescue_status_service.dart';
+import '../rescue/rescue_verification_history_screen.dart';
+import '../rescue/rescue_history_screen.dart';
 import 'account_settings_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -34,6 +38,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _me = widget.me;
   }
 
+  @override
+  void didUpdateWidget(covariant ProfileScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.me != widget.me) _me = widget.me;
+  }
+
   Future<void> _refreshProfile() async {
     if (!_me.isMember) return;
 
@@ -44,6 +54,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       if (!mounted) return;
       setState(() => _me = latest);
+      await RescueStatusService.instance.refresh();
     } on AuthServiceException catch (e) {
       if (!mounted) return;
       _error(e.message);
@@ -57,10 +68,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _changePhoto() async {
     if (!_me.isMember) return;
 
-    final file = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 1200,
-      imageQuality: 82,
+    final file = await ExternalActivity.run(
+      () => ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1200,
+        imageQuality: 82,
+      ),
     );
 
     if (file == null) return;
@@ -113,7 +126,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       title: const Text('ข้อมูลและความเป็นส่วนตัว'),
       content: const SingleChildScrollView(
         child: Text(
-          'SOS ถูกบันทึกในอุปกรณ์ก่อนเสมอ บัญชีสมาชิกจะส่งข้อมูลขึ้นระบบเมื่อเชื่อมต่อได้\n\nเมื่อส่ง SOS ผ่าน Nearby ข้อความ ชื่อ และพิกัดที่คุณเลือกส่งจะถูกส่งให้อุปกรณ์ที่เชื่อมต่อ และอาจถูกส่งต่อในเครือข่าย\n\nข้อความ Nearby ยังไม่บันทึกถาวร การออกจากระบบจะหยุดการเชื่อมต่อ แต่ SOS และข้อมูลที่บันทึกไว้ในเครื่องยังอยู่สำหรับบัญชีเดิม',
+          'SOS ถูกบันทึกในอุปกรณ์ก่อนเสมอ บัญชีสมาชิกจะส่งข้อมูลขึ้นระบบเมื่อเชื่อมต่อได้\n\nเมื่อส่ง SOS ผ่าน Nearby ข้อความ ชื่อ และพิกัดที่คุณเลือกส่งจะถูกส่งให้อุปกรณ์ที่เชื่อมต่อ และอาจถูกส่งต่อในเครือข่าย\n\nประวัติข้อความ Nearby บันทึกในเครื่องแยกตามบัญชี และบัญชีสมาชิกสำรองขึ้นคลาวด์เมื่อเชื่อมต่อได้ การออกจากระบบจะหยุดการเชื่อมต่อ แต่ SOS และข้อมูลที่บันทึกไว้ในเครื่องยังอยู่สำหรับบัญชีเดิม',
         ),
       ),
       actions: [
@@ -326,6 +339,57 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           onTap: () => Navigator.of(context).push(
                             MaterialPageRoute(
                               builder: (_) => const RescueVerificationScreen(),
+                            ),
+                          ),
+                        ),
+                      if (_me.isMember)
+                        ListenableBuilder(
+                          listenable: RescueStatusService.instance,
+                          builder: (context, _) {
+                            final service = RescueStatusService.instance;
+                            final latest =
+                                service.member?.id == _me.id &&
+                                    service.requests.isNotEmpty
+                                ? service.requests.first
+                                : null;
+                            return ListTile(
+                              leading: const Icon(Icons.verified_outlined),
+                              title: const Text(
+                                'สถานะและประวัติคำขอสิทธิ์กู้ภัย',
+                              ),
+                              subtitle: Text(
+                                _me.isVerifiedRescuer
+                                    ? 'อนุมัติสิทธิ์แล้ว • ดูประวัติการตรวจสอบ'
+                                    : switch (latest?['status']) {
+                                        'pending' => 'กำลังรอตรวจสอบ',
+                                        'rejected' =>
+                                          'ไม่ผ่านการอนุมัติ • ดูเหตุผล',
+                                        'approved' =>
+                                          'มีผลอนุมัติในประวัติ • ดูสิทธิ์ปัจจุบัน',
+                                        _ => 'ดูผลตรวจสอบและประวัติคำขอ',
+                                      },
+                              ),
+                              trailing: const Icon(Icons.chevron_right_rounded),
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      RescueVerificationHistoryScreen(me: _me),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      if (_me.isVerifiedRescuer)
+                        ListTile(
+                          leading: const Icon(Icons.history),
+                          title: const Text('ประวัติเคส SOS ที่ได้รับ'),
+                          subtitle: const Text(
+                            'เคสที่กำลังขอความช่วยเหลือและเคสที่หยุด SOS แล้ว',
+                          ),
+                          trailing: const Icon(Icons.chevron_right_rounded),
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => RescueHistoryScreen(me: _me),
                             ),
                           ),
                         ),

@@ -47,6 +47,7 @@ class MessageRepository {
     required AppUser user,
     required String conversationId,
     String? messageId,
+    DateTime? createdAt,
     String content = '',
     String type = 'text',
     String? replyToId,
@@ -76,7 +77,7 @@ class MessageRepository {
       mediaMime: mediaMime,
       mediaSize: mediaBytes?.length,
       mediaBytes: mediaBytes,
-      createdAt: now,
+      createdAt: createdAt ?? now,
       updatedAt: now,
       syncState: user.isMember ? 'pending' : 'synced',
     );

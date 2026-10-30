@@ -44,14 +44,16 @@ class MeshCrypto {
   Future<Map<String, dynamic>> certificate(
     String id,
     String name,
-    String? userId,
-  ) async {
+    String? userId, {
+    Map<String, dynamic>? attestation,
+  }) async {
     final value = <String, dynamic>{
       'device': id,
       'name': name,
       'userId': userId,
       'x': base64Encode((await _exchange.extractPublicKey()).bytes),
       'ed': base64Encode((await _signing.extractPublicKey()).bytes),
+      'attestation': ?attestation,
     };
     value['signature'] = base64Encode(
       (await _ed.sign(_canonical(value), keyPair: _signing)).bytes,
@@ -102,6 +104,39 @@ class MeshCrypto {
       type: KeyPairType.x25519,
     ),
   );
+  List<int> _statusBytes(Map<String, dynamic> message) => _canonical(
+    Map<String, dynamic>.from(message)
+      ..remove('ttl')
+      ..remove('statusSignature'),
+  );
+  Future<void> signStatus(Map<String, dynamic> message) async {
+    message['statusSignature'] = base64Encode(
+      (await _ed.sign(_statusBytes(message), keyPair: _signing)).bytes,
+    );
+  }
+
+  Future<bool> verifyStatus(Map cert, Map<String, dynamic> message) async {
+    try {
+      if (message['origin'] != cert['device'] ||
+          message['statusSignature'] is! String ||
+          (message['statusSignature'] as String).length > 100) {
+        return false;
+      }
+      return await _ed.verify(
+        _statusBytes(message),
+        signature: Signature(
+          base64Decode(message['statusSignature']),
+          publicKey: SimplePublicKey(
+            base64Decode(cert['ed']),
+            type: KeyPairType.ed25519,
+          ),
+        ),
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<Map<String, dynamic>> seal(
     Map cert,
     Map<String, dynamic> message,

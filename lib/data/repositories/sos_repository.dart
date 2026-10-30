@@ -101,6 +101,37 @@ class SosRepository {
     );
   }
 
+  /// A fresh fix updates the existing case; never reactivates a stopped SOS.
+  Future<LocalSosRecord?> updateLocation(
+    LocalSosRecord record,
+    SavedLocation location,
+  ) async {
+    if (!LocationFixWindow.valid(location)) return null;
+    final db = await _local.database;
+    return db.transaction((txn) async {
+      final value = await _local.sosStore.record(record.id).get(txn);
+      if (value == null) return null;
+      final current = LocalSosRecord.fromLocalMap(value);
+      if (!current.isActive || current.ownerLocalId != record.ownerLocalId) {
+        return null;
+      }
+      final next = current.copyWith(
+        latitude: location.latitude,
+        longitude: location.longitude,
+        accuracy: location.accuracyMeters,
+        clearAccuracy: location.accuracyMeters == null,
+        locationRecordedAt: location.recordedAt,
+        isLastKnownLocation: false,
+        revision: current.revision + 1,
+        updatedAt: DateTime.now(),
+        syncState: 'pending',
+        clearLastError: true,
+      );
+      await _save(txn, next, 'update');
+      return next;
+    });
+  }
+
   Future<void> stop(LocalSosRecord record) async {
     final now = DateTime.now();
 

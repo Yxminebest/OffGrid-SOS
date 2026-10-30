@@ -480,6 +480,7 @@ class SyncService {
             ),
           );
 
+      _requireSession(currentUserId);
       await _messages.attachUploadedMedia(id: record.id, mediaPath: path);
       uploadRecord = record.copyWith(mediaPath: path, clearMediaBytes: true);
     }

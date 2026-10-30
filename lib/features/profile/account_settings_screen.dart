@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../app/theme.dart';
 import '../../models/user.dart';
 import '../../services/auth_service.dart';
+import '../../services/home_return_policy.dart';
 import '../../services/sync_service.dart';
 import '../../widgets/password_strength_indicator.dart';
 
@@ -37,6 +39,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
   final _confirmPassword = TextEditingController();
 
   bool _busy = false;
+  bool _uploadingPhoto = false;
+  bool _reloading = false;
 
   bool _hideEmailPassword = true;
   bool _hideCurrentPassword = true;
@@ -92,6 +96,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
 
     setState(() {
       _busy = true;
+      _reloading = true;
     });
 
     try {
@@ -118,6 +123,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
       if (mounted) {
         setState(() {
           _busy = false;
+          _reloading = false;
         });
       }
     }
@@ -157,6 +163,199 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
         });
       }
     }
+  }
+
+  Future<void> _changePhoto() async {
+    if (_busy || !_current.isMember) return;
+    final ownerId = _current.id;
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('ถ่ายรูปโปรไฟล์'),
+              onTap: () => Navigator.pop(sheetContext, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('เลือกรูปจากเครื่อง'),
+              onTap: () => Navigator.pop(sheetContext, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || source == null || _busy) return;
+    setState(() {
+      _busy = true;
+      _uploadingPhoto = true;
+    });
+    try {
+      final file = await ExternalActivity.run(
+        () => ImagePicker().pickImage(
+          source: source,
+          maxWidth: 1200,
+          maxHeight: 1200,
+          imageQuality: 82,
+        ),
+      );
+      if (!mounted || file == null) return;
+      final bytes = await file.readAsBytes();
+      if (!mounted || AuthService.currentAuthUser?.id != ownerId) return;
+      final extension = file.name.split('.').last.toLowerCase();
+      final mime =
+          file.mimeType ??
+          switch (extension) {
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+            _ => 'image/jpeg',
+          };
+      final updated = await AuthService.uploadAvatar(
+        bytes: bytes,
+        mimeType: mime,
+        extension: extension,
+      );
+      if (!mounted || AuthService.currentAuthUser?.id != ownerId) return;
+      // Storage replaces the same object; evict an older cached avatar.
+      for (final url in {_current.photoUrl, updated.photoUrl}) {
+        if (url != null) await NetworkImage(url).evict();
+      }
+      if (!mounted) return;
+      setState(() => _current = updated);
+      widget.onUpdated(updated);
+      _show('เปลี่ยนรูปโปรไฟล์แล้ว');
+    } on AuthServiceException catch (e) {
+      _show(e.message, error: true);
+    } catch (_) {
+      _show(
+        'เปลี่ยนรูปไม่สำเร็จ กรุณาตรวจสิทธิ์กล้องและอินเทอร์เน็ต',
+        error: true,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _uploadingPhoto = false;
+        });
+      }
+    }
+  }
+
+  Widget _accountHeader() {
+    final name = _current.fullName.isEmpty ? 'บัญชีของคุณ' : _current.fullName;
+    final fallback = ColoredBox(
+      color: context.colors.surfaceSoft,
+      child: Center(
+        child: Text(
+          name.characters.first,
+          style: TextStyle(fontSize: 30, color: context.colors.info),
+        ),
+      ),
+    );
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: context.colors.surface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: context.colors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Semantics(
+                button: true,
+                label: 'เปลี่ยนรูปโปรไฟล์',
+                child: InkWell(
+                  onTap: _busy ? null : _changePhoto,
+                  borderRadius: BorderRadius.circular(40),
+                  child: Stack(
+                    children: [
+                      ClipOval(
+                        child: SizedBox.square(
+                          dimension: 80,
+                          child: _uploadingPhoto
+                              ? const Center(child: CircularProgressIndicator())
+                              : _current.photoUrl == null
+                              ? fallback
+                              : Image.network(
+                                  _current.photoUrl!,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, error, stack) => fallback,
+                                ),
+                        ),
+                      ),
+                      Positioned(
+                        bottom: 0,
+                        right: 0,
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: context.colors.info,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.camera_alt_outlined,
+                            size: 16,
+                            color: context.colors.surface,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name, style: Theme.of(context).textTheme.titleLarge),
+                    const SizedBox(height: 4),
+                    Text(
+                      _current.email ?? '',
+                      style: TextStyle(color: context.colors.muted),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: _busy ? null : _changePhoto,
+                icon: const Icon(Icons.add_a_photo_outlined, size: 18),
+                label: const Text('เปลี่ยนรูป'),
+              ),
+              FilledButton.tonalIcon(
+                onPressed: _busy ? null : _reload,
+                icon: _reloading
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh_rounded, size: 20),
+                label: Text(_reloading ? 'กำลังอัปเดต…' : 'รีโหลดข้อมูล'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'รีโหลดข้อมูลบัญชีล่าสุดเมื่อเชื่อมต่ออินเทอร์เน็ต',
+            style: TextStyle(fontSize: 12, color: context.colors.muted),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _changeEmail() async {
@@ -265,7 +464,6 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
   Future<void> _deleteAccount() async {
     if (_busy) return;
 
-    final confirm = TextEditingController();
     final password = TextEditingController();
 
     var hidePassword = true;
@@ -291,7 +489,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                     const SizedBox(height: 14),
                     const Text(
                       'เพื่อความปลอดภัย '
-                      'กรุณากรอกรหัสผ่านปัจจุบันและพิมพ์ DELETE',
+                      'กรุณากรอกรหัสผ่านปัจจุบันเพื่อยืนยันการลบบัญชี',
                       style: TextStyle(fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(height: 12),
@@ -299,6 +497,9 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                       controller: password,
                       autofocus: true,
                       obscureText: hidePassword,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      onChanged: (_) => setDialogState(() {}),
                       decoration: InputDecoration(
                         labelText: 'รหัสผ่านปัจจุบัน',
                         suffixIcon: IconButton(
@@ -315,13 +516,6 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: confirm,
-                      decoration: const InputDecoration(
-                        labelText: 'พิมพ์ DELETE',
-                      ),
-                    ),
                   ],
                 ),
               ),
@@ -336,16 +530,17 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                   style: FilledButton.styleFrom(
                     backgroundColor: AppColors.error,
                   ),
-                  onPressed: () {
-                    Navigator.pop(
-                      dialogContext,
-                      _DeleteAccountConfirmation(
-                        currentPassword: password.text,
-                        typedDelete: confirm.text.trim(),
-                      ),
-                    );
-                  },
-                  child: const Text('ลบบัญชีถาวร'),
+                  onPressed: password.text.isEmpty
+                      ? null
+                      : () {
+                          Navigator.pop(
+                            dialogContext,
+                            _DeleteAccountConfirmation(
+                              currentPassword: password.text,
+                            ),
+                          );
+                        },
+                  child: const Text('ยืนยันลบบัญชี'),
                 ),
               ],
             );
@@ -354,15 +549,9 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
       },
     );
 
-    confirm.dispose();
     password.dispose();
 
     if (deleteRequest == null) {
-      return;
-    }
-
-    if (deleteRequest.typedDelete != 'DELETE') {
-      _show('กรุณาพิมพ์ DELETE ให้ถูกต้อง', error: true);
       return;
     }
 
@@ -492,6 +681,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
           children: [
+            _accountHeader(),
+            const SizedBox(height: 18),
             ListTile(
               leading: const Icon(Icons.cloud_download_outlined),
               title: const Text('กู้คืนประวัติ Nearby จากคลาวด์'),
@@ -517,42 +708,6 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                     },
             ),
 
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: context.colors.surface,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: context.colors.border),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Account CRUD',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Create = สมัครสมาชิก • '
-                    'Read = โหลดข้อมูลบัญชี • '
-                    'Update = แก้ไขข้อมูล • '
-                    'Delete = ลบบัญชีถาวร',
-                    style: TextStyle(color: context.colors.muted, height: 1.45),
-                  ),
-                  const SizedBox(height: 10),
-                  SelectableText(
-                    'User ID: ${_current.id}',
-                    style: TextStyle(fontSize: 11, color: context.colors.muted),
-                  ),
-                  const SizedBox(height: 10),
-                  OutlinedButton.icon(
-                    onPressed: _busy ? null : _reload,
-                    icon: const Icon(Icons.refresh_rounded),
-                    label: const Text('อ่านข้อมูลจากฐานข้อมูลอีกครั้ง'),
-                  ),
-                ],
-              ),
-            ),
             const SizedBox(height: 18),
 
             // -------------------------------------------------
@@ -787,7 +942,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
             // Danger zone
             // -------------------------------------------------
             const Text(
-              'Danger zone',
+              'ลบบัญชี',
               style: TextStyle(
                 color: AppColors.error,
                 fontSize: 18,
@@ -799,7 +954,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
 
             Text(
               'การลบบัญชีเป็นการลบถาวร '
-              'ต้องยืนยันด้วยรหัสผ่านปัจจุบันและคำว่า DELETE',
+              'ต้องเชื่อมต่ออินเทอร์เน็ตและยืนยันด้วยรหัสผ่านปัจจุบันที่ถูกต้อง',
               style: TextStyle(color: context.colors.muted, height: 1.45),
             ),
 
@@ -819,11 +974,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
 }
 
 class _DeleteAccountConfirmation {
-  const _DeleteAccountConfirmation({
-    required this.currentPassword,
-    required this.typedDelete,
-  });
+  const _DeleteAccountConfirmation({required this.currentPassword});
 
   final String currentPassword;
-  final String typedDelete;
 }

@@ -8,6 +8,10 @@ import 'package:sembast/sembast.dart';
 import 'package:uuid/uuid.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'mesh_crypto.dart';
+import 'mesh_attestation.dart';
+import 'network_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show Supabase;
+import 'location_service.dart';
 
 import '../data/local/local_database.dart';
 import '../data/models/local_sos_record.dart';
@@ -33,12 +37,26 @@ class NearbyPeer {
     required this.endpoint,
     required this.deviceId,
     required this.name,
-    this.userId,
+    String? userId,
     this.hops = 1,
-  });
+    this.verifiedRole,
+    this.attestedUntil,
+    // Keep the public constructor name while the getter enforces expiration.
+    // ignore: prefer_initializing_formals
+  }) : _userId = userId;
   final String endpoint, deviceId, name;
-  final String? userId;
+  final String? _userId;
+  String? get userId =>
+      attestedUntil == null || DateTime.now().isBefore(attestedUntil!)
+      ? _userId
+      : null;
   final int hops;
+  final String? verifiedRole;
+  final DateTime? attestedUntil;
+  bool get verifiedRescuer =>
+      attestedUntil != null &&
+      DateTime.now().isBefore(attestedUntil!) &&
+      (verifiedRole == 'rescuer' || verifiedRole == 'admin');
 }
 
 class MeshRoute {
@@ -56,14 +74,18 @@ class NearbyMeshService extends ChangeNotifier {
       _sendOverride = null,
       _disconnectOverride = null,
       _testStorage = false,
+      _verifyAttestation = MeshAttestation.verify,
       _mediaFiles = null;
   NearbyMeshService.withDatabase(
     LocalDatabase local, {
     Future<void> Function(String, Uint8List)? sendBytes,
     Future<void> Function(String)? disconnect,
     this._mediaFiles,
+    Future<MeshAttestationClaims?> Function(Object?, Map<String, dynamic>)?
+    verifyAttestation,
   }) : _local = local,
        _testStorage = true,
+       _verifyAttestation = verifyAttestation ?? MeshAttestation.verify,
        _sendOverride = sendBytes,
        _disconnectOverride = disconnect;
   static final instance = NearbyMeshService._();
@@ -75,6 +97,8 @@ class NearbyMeshService extends ChangeNotifier {
   final Future<void> Function(String)? _disconnectOverride;
   final NearbyMediaFiles? _mediaFiles;
   final bool _testStorage;
+  final Future<MeshAttestationClaims?> Function(Object?, Map<String, dynamic>)
+  _verifyAttestation;
   late final crypto = MeshCrypto(
     read: (key) async {
       if (!_testStorage) return const FlutterSecureStorage().read(key: key);
@@ -98,6 +122,83 @@ class NearbyMeshService extends ChangeNotifier {
   final _routeSeen = <String, int>{};
   DateTime _lastAdvertised = DateTime.fromMillisecondsSinceEpoch(0);
   bool _canRescue = false;
+  Map<String, dynamic>? _attestation;
+  MeshAttestationClaims? _ownClaims;
+  final _verifiedPeers = <String, MeshAttestationClaims>{};
+  final _verifiedKeys = <String, String>{};
+  final _identityChallenges =
+      <String, ({String nonce, String keys, DateTime expires})>{};
+  DateTime _nextAttestation = DateTime.fromMillisecondsSinceEpoch(0);
+  bool _refreshingAttestation = false;
+  bool get hasRescueAttestation => _ownClaims?.rescuer == true;
+  Future<bool> installAttestation(Map<String, dynamic> proof) async {
+    final owner = _ownerId;
+    final generation = _sessionGeneration;
+    if (owner == null || _memberId == null) return false;
+    final cert = await crypto.certificate(deviceId, displayName, _memberId);
+    final claims = await _verifyAttestation(proof, cert);
+    if (claims == null ||
+        generation != _sessionGeneration ||
+        _ownerId != owner) {
+      return false;
+    }
+    await crypto.write('mesh_attestation_$owner', jsonEncode(proof));
+    if (generation != _sessionGeneration || _ownerId != owner) return false;
+    _attestation = Map<String, dynamic>.from(proof);
+    _ownClaims = claims;
+    notifyListeners();
+    return true;
+  }
+
+  String get attestationStatus => hasRescueAttestation
+      ? 'ใบรับรองกู้ภัยพร้อมใช้แบบออฟไลน์'
+      : 'เชื่อมต่ออินเทอร์เน็ตเพื่อรับหรือต่ออายุใบรับรองกู้ภัย';
+
+  /// Optional online renewal; cached proofs are verified locally on startup.
+  /// No network request is awaited by discovery, SOS, or a radio chat send.
+  Future<void> refreshAttestation({bool force = false}) async {
+    if (_testStorage ||
+        _memberId == null ||
+        _ownerId == null ||
+        _refreshingAttestation ||
+        !NetworkService.instance.online.value ||
+        (!force && DateTime.now().isBefore(_nextAttestation))) {
+      return;
+    }
+    final owner = _ownerId!;
+    final generation = _sessionGeneration;
+    _refreshingAttestation = true;
+    _nextAttestation = DateTime.now().add(const Duration(minutes: 5));
+    try {
+      final client = Supabase.instance.client;
+      if (client.auth.currentUser?.id != owner) return;
+      final cert = await crypto.certificate(deviceId, displayName, _memberId);
+      final response = await client.functions
+          .invoke('mesh-attestation', body: {'certificate': cert})
+          .timeout(const Duration(seconds: 12));
+      final proof = Map<String, dynamic>.from(response.data as Map);
+      final claims = await MeshAttestation.verify(proof, cert);
+      if (claims == null ||
+          generation != _sessionGeneration ||
+          _ownerId != owner ||
+          client.auth.currentUser?.id != owner) {
+        return;
+      }
+      await crypto.write('mesh_attestation_$owner', jsonEncode(proof));
+      if (generation != _sessionGeneration || _ownerId != owner) return;
+      _attestation = proof;
+      _ownClaims = claims;
+      _nextAttestation = DateTime.now().add(const Duration(hours: 6));
+      if (!claims.rescuer && rescueActive) await setRescue(false);
+      await _advertise();
+      notifyListeners();
+    } catch (_) {
+      // An outage never replaces a valid cached proof with an unverified claim.
+    } finally {
+      _refreshingAttestation = false;
+    }
+  }
+
   int _rescueRevision = 0;
   late final chats = NearbyChatRepository(local: _local);
   late final media = NearbyMediaTransfer(
@@ -123,6 +224,7 @@ class NearbyMeshService extends ChangeNotifier {
     },
   );
   String? get ownerId => _ownerId;
+  LocalDatabase get localDatabase => _local;
   String? _memberId;
   final identities = <String, NearbyPeer>{};
   final _lastSeen = <String, DateTime>{};
@@ -145,7 +247,11 @@ class NearbyMeshService extends ChangeNotifier {
       endpoint: route.via,
       deviceId: id,
       name: route.certificate['name'] as String,
-      userId: route.certificate['userId'] as String?,
+      userId: _verifiedPeers[id]?.current == true
+          ? _verifiedPeers[id]!.userId
+          : null,
+      verifiedRole: _verifiedPeers[id]?.role,
+      attestedUntil: _verifiedPeers[id]?.expiresAt,
       hops: route.hops,
     );
   }
@@ -179,7 +285,38 @@ class NearbyMeshService extends ChangeNotifier {
   bool running = false;
   bool busy = false;
   bool rescueActive = false;
+
+  /// A case conversation does not imply that the other participant is rescue.
+  bool isPeerRescueActive(String device) {
+    if (peerForDevice(device)?.verifiedRescuer != true) return false;
+    for (final message in inbox) {
+      if (message.kind == 'rescue' && message.data['origin'] == device) {
+        return (message.data['data'] as Map?)?['active'] == true;
+      }
+    }
+    return false;
+  }
+
+  String chatPeerName(String device, {String? fallback}) {
+    final peer = peerForDevice(device);
+    if (peer != null && peer.name.trim().isNotEmpty) return peer.name;
+    for (final message in inbox) {
+      if (message.data['origin'] == device) {
+        final name = message.data['sender']?.toString().trim();
+        if (name != null && name.isNotEmpty) return name;
+      }
+    }
+    final name = fallback?.trim() ?? '';
+    // Legacy releases stored the SOS action title as the contact name.
+    return name.isEmpty ||
+            name == 'แชทกับหน่วยกู้ภัย' ||
+            name == 'แชทกับบุคคลใกล้เคียง'
+        ? 'บุคคลใกล้เคียง'
+        : name;
+  }
+
   Map<String, dynamic>? mySos;
+  final _pairingQueue = <({String id, String name, String token})>[];
   String? pendingPeer;
   String? pendingToken;
   String? pendingName;
@@ -208,7 +345,7 @@ class NearbyMeshService extends ChangeNotifier {
 
   Future<void> _loadSession(AppUser user) async {
     final generation = ++_sessionGeneration;
-    await stop();
+    await stop(remember: false);
     final db = await _local.database;
     final identity = await db.transaction((txn) async {
       final key = 'nearby_identity_${user.id}';
@@ -233,6 +370,20 @@ class NearbyMeshService extends ChangeNotifier {
     _memberId = user.isMember ? user.id : null;
     deviceId = identity;
     displayName = user.fullName;
+    final cachedProof = await crypto.read('mesh_attestation_${user.id}');
+    if (generation != _sessionGeneration) return;
+    if (cachedProof != null) {
+      try {
+        final cert = await crypto.certificate(deviceId, displayName, _memberId);
+        final proof = Map<String, dynamic>.from(jsonDecode(cachedProof) as Map);
+        final claims = await _verifyAttestation(proof, cert);
+        if (generation != _sessionGeneration) return;
+        if (claims != null) {
+          _attestation = proof;
+          _ownClaims = claims;
+        }
+      } catch (_) {}
+    }
     if (active != null) _restoreSos(active);
     final savedStates = await chats.loadSos(user.id);
     if (generation != _sessionGeneration) return;
@@ -283,6 +434,12 @@ class NearbyMeshService extends ChangeNotifier {
     routes.clear();
     _routeSeen.clear();
     _canRescue = false;
+    _attestation = null;
+    _ownClaims = null;
+    _verifiedPeers.clear();
+    _verifiedKeys.clear();
+    _identityChallenges.clear();
+    _nextAttestation = DateTime.fromMillisecondsSinceEpoch(0);
     _lastSeen.clear();
     deviceId = '';
     activeSosId = null;
@@ -293,6 +450,7 @@ class NearbyMeshService extends ChangeNotifier {
     peers.clear();
     discoveredModes.clear();
     connected.clear();
+    _pairingQueue.clear();
     pendingPeer = null;
     pendingName = null;
     pendingToken = null;
@@ -316,6 +474,7 @@ class NearbyMeshService extends ChangeNotifier {
     const store = FlutterSecureStorage();
     for (final key in (await store.readAll()).keys) {
       if (key == 'mesh_keys_v1_$owner' ||
+          key == 'mesh_attestation_$owner' ||
           key.startsWith('mesh_pin_${owner}_')) {
         await store.delete(key: key);
       }
@@ -474,6 +633,43 @@ class NearbyMeshService extends ChangeNotifier {
     });
   }
 
+  Future<String?> preferredTransport(String owner) async {
+    final row = await _local.metaStore
+        .record('nearby_radio:$owner')
+        .get(await _local.database);
+    final mode = row?['mode'];
+    return mode == 'nearby' || mode == 'bluetooth' ? mode as String : null;
+  }
+
+  Future<void> _rememberTransport(String? mode) async {
+    final owner = _ownerId;
+    if (owner == null) return;
+    await _local.metaStore.record('nearby_radio:$owner').put(
+      await _local.database,
+      {'owner_id': owner, 'mode': mode},
+    );
+  }
+
+  Future<void> resumePreferred(
+    AppUser user, {
+    bool startIfUnset = false,
+  }) async {
+    await initializeForUser(user);
+    final generation = _sessionGeneration;
+    final mode = await preferredTransport(user.id);
+    if (_ownerId != user.id ||
+        generation != _sessionGeneration ||
+        running ||
+        busy) {
+      return;
+    }
+    if (mode == 'bluetooth') {
+      await startBluetooth(user);
+    } else if (mode == 'nearby' || startIfUnset) {
+      await start(user.fullName, user: user);
+    }
+  }
+
   Future<void> start(String name, {AppUser? user}) async {
     if (user != null) await initializeForUser(user);
     await _sessionWork;
@@ -537,6 +733,7 @@ class NearbyMeshService extends ChangeNotifier {
       }
       running = a || d;
       if (running) {
+        await _rememberTransport('nearby');
         _healthTimer?.cancel();
         _healthTimer = Timer.periodic(
           const Duration(seconds: 5),
@@ -559,22 +756,33 @@ class NearbyMeshService extends ChangeNotifier {
 
   Future<bool> startBluetooth(AppUser user) async {
     await initializeForUser(user);
-    if (!await AndroidPermissions.requestBluetooth()) {
+    final generation = _radioGeneration;
+    final allowed = await AndroidPermissions.requestBluetooth();
+    if (generation != _radioGeneration || _ownerId != user.id) return false;
+    if (!allowed) {
       _notify('กรุณาอนุญาตสิทธิ์อุปกรณ์ Bluetooth ก่อน');
       return false;
     }
     final link = BluetoothLink.instance;
     link.onConnected = (id, name) async {
+      if (generation != _radioGeneration) return;
       peers[id] = name;
       _result(id, Status.CONNECTED);
     };
-    link.onDisconnected = _disconnected;
-    link.onBytes = _receivedBytes;
-    if (!await link.start()) {
+    link.onDisconnected = (id) {
+      if (generation == _radioGeneration) _disconnected(id);
+    };
+    link.onBytes = (id, bytes) {
+      if (generation == _radioGeneration) _receivedBytes(id, bytes);
+    };
+    final started = await link.start();
+    if (generation != _radioGeneration || _ownerId != user.id) return false;
+    if (!started) {
       _notify('เปิด Bluetooth บนโทรศัพท์ก่อนเริ่มรับข้อความ');
       return false;
     }
     running = true;
+    await _rememberTransport('bluetooth');
     _healthTimer ??= Timer.periodic(
       const Duration(seconds: 5),
       (_) => unawaited(_healthCheck()),
@@ -609,12 +817,35 @@ class NearbyMeshService extends ChangeNotifier {
     }
   }
 
-  void _initiated(String id, ConnectionInfo info) {
-    if (_ownerId == null) return;
-    pendingPeer = id;
-    pendingName = parseDiscoveryName(info.endpointName).name;
-    pendingToken = info.authenticationToken;
+  void _initiated(String id, ConnectionInfo info) => requestPairing(
+    id: id,
+    name: parseDiscoveryName(info.endpointName).name,
+    token: info.authenticationToken,
+  );
+
+  /// Keep simultaneous requests from two neighbours separate on a relay phone.
+  void requestPairing({
+    required String id,
+    required String name,
+    required String token,
+  }) {
+    if (_ownerId == null ||
+        pendingPeer == id ||
+        _pairingQueue.any((r) => r.id == id)) {
+      return;
+    }
+    if (_pairingQueue.length >= 8) return;
+    _pairingQueue.add((id: id, name: name, token: token));
+    _nextPairing();
     _notify('มีคำขอเชื่อมต่อ: $pendingName');
+  }
+
+  void _nextPairing() {
+    if (pendingPeer != null || _pairingQueue.isEmpty) return;
+    final next = _pairingQueue.removeAt(0);
+    pendingPeer = next.id;
+    pendingName = next.name;
+    pendingToken = next.token;
   }
 
   Future<void> approve(bool accepted) async {
@@ -640,6 +871,9 @@ class NearbyMeshService extends ChangeNotifier {
       }
     } catch (e) {
       _notify('จับคู่ไม่สำเร็จ: $e');
+    } finally {
+      _nextPairing();
+      notifyListeners();
     }
   }
 
@@ -694,7 +928,12 @@ class NearbyMeshService extends ChangeNotifier {
 
   Future<void> _advertise({String? endpoint}) async {
     if (_ownerId == null || deviceId.isEmpty || connected.isEmpty) return;
-    final cert = await crypto.certificate(deviceId, displayName, _memberId);
+    final cert = await crypto.certificate(
+      deviceId,
+      displayName,
+      _memberId,
+      attestation: _ownClaims?.current == true ? _attestation : null,
+    );
     final packet = _envelope('route_ad', {
       'certificate': cert,
       'path': [deviceId],
@@ -722,6 +961,7 @@ class NearbyMeshService extends ChangeNotifier {
   }
 
   Future<void> _receiveRoute(String from, Map<String, dynamic> packet) async {
+    final generation = _sessionGeneration;
     final body = packet['data'] as Map;
     if (body['certificate'] is! Map || body['path'] is! List) return;
     final cert = Map<String, dynamic>.from(body['certificate'] as Map);
@@ -743,6 +983,27 @@ class NearbyMeshService extends ChangeNotifier {
       _notify('รหัสความปลอดภัยของอุปกรณ์เปลี่ยน กรุณาตรวจสอบคู่เชื่อมต่อ');
       return;
     }
+    final verified = await _verifyAttestation(cert['attestation'], cert);
+    if (generation != _sessionGeneration || !connected.contains(from)) return;
+    final keys = '${cert['ed']}:${cert['x']}';
+    if (verified != null &&
+        _verifiedKeys[origin] == keys &&
+        _verifiedPeers[origin]?.current == true) {
+      _verifiedPeers[origin] = verified;
+    } else {
+      _verifiedPeers.remove(origin);
+    }
+    final direct = identities[from];
+    if (direct?.deviceId == origin) {
+      identities[from] = NearbyPeer(
+        endpoint: from,
+        deviceId: origin,
+        name: direct!.name,
+        userId: _verifiedPeers[origin]?.userId,
+        verifiedRole: _verifiedPeers[origin]?.role,
+        attestedUntil: _verifiedPeers[origin]?.expiresAt,
+      );
+    }
     _routeSeen[packet['id']] = path.length;
     if (_routeSeen.length > 2048) _routeSeen.remove(_routeSeen.keys.first);
     final old = routes[origin];
@@ -759,6 +1020,28 @@ class NearbyMeshService extends ChangeNotifier {
       );
     }
     if (routes.length > 512) routes.remove(routes.keys.first);
+    if (verified != null &&
+        _verifiedPeers[origin] == null &&
+        !(_identityChallenges[origin]?.expires.isAfter(DateTime.now()) ??
+            false)) {
+      final challenge = (
+        nonce: const Uuid().v4(),
+        keys: keys,
+        expires: DateTime.now().add(const Duration(seconds: 30)),
+      );
+      _identityChallenges[origin] = challenge;
+      try {
+        await _sendTo(
+          origin,
+          _envelope('identity_challenge', {
+            'target': origin,
+            'nonce': challenge.nonce,
+          }),
+        );
+      } catch (_) {
+        /* A later advertisement retries the challenge. */
+      }
+    }
     notifyListeners();
     unawaited(retryFor(origin));
     if (packet['ttl'] > 0 && path.length < 6) {
@@ -776,10 +1059,8 @@ class NearbyMeshService extends ChangeNotifier {
   Future<void> _sendTo(String target, Map<String, dynamic> message) async {
     final peer = peerForDevice(target);
     if (peer == null) throw StateError('รอเส้นทางถึงผู้รับ');
-    if (identities[peer.endpoint]?.deviceId == target) {
-      await _direct(peer.endpoint, message);
-      return;
-    }
+    // Encrypt direct links as well as relays. Replaying a public certificate
+    // never lets a different device read private content or forge an ACK.
     final route = routes[target];
     if (route == null) throw StateError('ยังไม่พบกุญแจของผู้รับ');
     final packet = _envelope('routed', {'target': target}, ttl: 6);
@@ -816,6 +1097,9 @@ class NearbyMeshService extends ChangeNotifier {
           !(kind == 'direct' ||
               kind == 'case_chat' ||
               kind == 'ack' ||
+              kind == 'identity_challenge' ||
+              kind == 'identity_response' ||
+              kind == 'status_request' ||
               kind.startsWith('media_'))) {
         return;
       }
@@ -850,6 +1134,9 @@ class NearbyMeshService extends ChangeNotifier {
     if (peerId != null) lost.add(peerId);
     for (final device in lost) {
       media.disconnected(device);
+      _verifiedPeers.remove(device);
+      _verifiedKeys.remove(device);
+      _identityChallenges.remove(device);
     }
     connected.remove(id);
     peers.remove(id);
@@ -862,11 +1149,13 @@ class NearbyMeshService extends ChangeNotifier {
       );
     }
     _lastSeen.remove(id);
+    _pairingQueue.removeWhere((request) => request.id == id);
     if (pendingPeer == id) {
       pendingPeer = null;
       pendingName = null;
       pendingToken = null;
     }
+    _nextPairing();
     _notify('ตัดการเชื่อมต่อแล้ว • ${connected.length} เครื่องที่ยังเชื่อมต่อ');
   }
 
@@ -898,6 +1187,7 @@ class NearbyMeshService extends ChangeNotifier {
   Future<void> _runHealthCheck() async {
     final generation = _radioGeneration;
     final now = DateTime.now();
+    if (rescueActive && !hasRescueAttestation) await setRescue(false);
     routes.removeWhere(
       (_, r) => r.expires.isBefore(now) || !connected.contains(r.via),
     );
@@ -998,8 +1288,58 @@ class NearbyMeshService extends ChangeNotifier {
       await _receiveRouted(from, data);
       return;
     }
-    final trusted =
-        authenticatedOrigin == origin || identities[from]?.deviceId == origin;
+    final trusted = authenticatedOrigin == origin;
+    if (kind == 'identity_challenge' &&
+        trusted &&
+        body['target'] == deviceId &&
+        body['nonce'] is String &&
+        (body['nonce'] as String).length <= 128) {
+      await _sendTo(
+        origin,
+        _envelope('identity_response', {
+          'target': origin,
+          'nonce': body['nonce'],
+        }),
+      );
+      return;
+    }
+    if (kind == 'identity_response' && trusted && body['target'] == deviceId) {
+      final challenge = _identityChallenges[origin];
+      final cert = routes[origin]?.certificate;
+      if (challenge == null ||
+          cert == null ||
+          body['nonce'] != challenge.nonce ||
+          challenge.expires.isBefore(DateTime.now()) ||
+          challenge.keys != '${cert['ed']}:${cert['x']}') {
+        return;
+      }
+      final claims = await _verifyAttestation(cert['attestation'], cert);
+      if (_ownerId != owner || claims == null) return;
+      _identityChallenges.remove(origin);
+      _verifiedKeys[origin] = challenge.keys;
+      _verifiedPeers[origin] = claims;
+      final direct = identities[from];
+      if (direct?.deviceId == origin) {
+        identities[from] = NearbyPeer(
+          endpoint: from,
+          deviceId: origin,
+          name: direct!.name,
+          userId: claims.userId,
+          verifiedRole: claims.role,
+          attestedUntil: claims.expiresAt,
+        );
+      }
+      notifyListeners();
+      await _sendTo(origin, _envelope('status_request', {'target': origin}));
+      return;
+    }
+    if (kind == 'status_request' && trusted && body['target'] == deviceId) {
+      await send('rescue', {
+        'active': rescueActive && hasRescueAttestation,
+        'revision': _rescueRevision,
+      });
+      return;
+    }
     if (kind == 'route_withdraw') {
       if (identities[from]?.deviceId != origin || body['devices'] is! List) {
         return;
@@ -1040,7 +1380,12 @@ class NearbyMeshService extends ChangeNotifier {
         endpoint: from,
         deviceId: origin,
         name: data['sender']?.toString() ?? peers[from] ?? 'คนใกล้เคียง',
-        userId: body['userId'] as String?,
+        // A hello is transport discovery, never proof of a cloud account.
+        userId: _verifiedPeers[origin]?.current == true
+            ? _verifiedPeers[origin]!.userId
+            : null,
+        verifiedRole: _verifiedPeers[origin]?.role,
+        attestedUntil: _verifiedPeers[origin]?.expiresAt,
       );
       peers[from] = identities[from]!.name;
       if (first) await _direct(from, _envelope('hello', {'userId': _memberId}));
@@ -1099,6 +1444,12 @@ class NearbyMeshService extends ChangeNotifier {
       return;
     }
     if (kind != 'sos' && kind != 'rescue') return;
+    final statusCertificate = routes[origin]?.certificate;
+    if (statusCertificate == null ||
+        !await crypto.verifyStatus(statusCertificate, data) ||
+        _ownerId != owner) {
+      return;
+    }
     if (!_seen.add(data['id'])) return;
     _trimSeen();
     if (kind == 'sos') {
@@ -1110,6 +1461,9 @@ class NearbyMeshService extends ChangeNotifier {
     }
     if (kind == 'rescue') {
       if (body['active'] is! bool || body['revision'] is! int) return;
+      if (body['active'] == true && _verifiedPeers[origin]?.rescuer != true) {
+        return;
+      }
       final old = inbox
           .where((m) => m.kind == 'rescue' && m.data['origin'] == origin)
           .firstOrNull;
@@ -1118,6 +1472,7 @@ class NearbyMeshService extends ChangeNotifier {
           body['revision'] < (previous['revision'] as int? ?? 0)) {
         return;
       }
+      if (!await chats.saveRescue(owner, data)) return;
     }
     if (_ownerId != owner) return;
     _remember(data);
@@ -1193,6 +1548,11 @@ class NearbyMeshService extends ChangeNotifier {
     'data': body,
   };
   Future<void> _direct(String endpoint, Map<String, dynamic> data) async {
+    if (data['origin'] == deviceId &&
+        (data['kind'] == 'sos' || data['kind'] == 'rescue') &&
+        data['statusSignature'] == null) {
+      await crypto.signStatus(data);
+    }
     final bytes = Uint8List.fromList(utf8.encode(jsonEncode(data)));
     if (bytes.length > 32768) throw StateError('ข้อความยาวเกินกำหนด');
     if (_sendOverride != null) {
@@ -1213,7 +1573,16 @@ class NearbyMeshService extends ChangeNotifier {
     required String text,
     String? caseId,
     String? peerName,
+    SavedLocation? location,
+    String? messageId,
   }) async {
+    if (location != null &&
+        (!location.latitude.isFinite ||
+            !location.longitude.isFinite ||
+            location.latitude.abs() > 90 ||
+            location.longitude.abs() > 180)) {
+      throw ArgumentError('Invalid location');
+    }
     await _sessionWork;
     final owner = _ownerId;
     if (owner == null ||
@@ -1222,16 +1591,42 @@ class NearbyMeshService extends ChangeNotifier {
         text.length > 4000) {
       return 0;
     }
+    if (messageId != null && await chats.find(owner, messageId) != null) {
+      return 0;
+    }
     final env = _envelope(caseId == null ? 'direct' : 'case_chat', {
       'target': target,
       'text': text.trim(),
+      if (location != null) ...{
+        'type': 'location',
+        'lat': location.latitude,
+        'lng': location.longitude,
+        'recordedAt': location.recordedAt.toUtc().toIso8601String(),
+        'lastKnown': location.isLastKnown,
+        'accuracy': ?location.accuracyMeters,
+      },
       'caseId': ?caseId,
     });
+    if (messageId != null) env['id'] = messageId;
     env['peerName'] = peerName ?? peerForDevice(target)?.name ?? 'คนใกล้เคียง';
     await chats.save(owner, target, env, incoming: false);
     _remember(env);
     return _deliver(owner, target, env);
   }
+
+  Future<int> sendLocation({
+    required String target,
+    required SavedLocation location,
+    String? caseId,
+    String? peerName,
+  }) => sendDirect(
+    target: target,
+    text:
+        'ตำแหน่งของฉัน: ${location.latitude.toStringAsFixed(6)}, ${location.longitude.toStringAsFixed(6)}',
+    caseId: caseId,
+    peerName: peerName,
+    location: location,
+  );
 
   Future<int> _deliver(
     String owner,
@@ -1340,6 +1735,11 @@ class NearbyMeshService extends ChangeNotifier {
   }
 
   Future<int> _broadcast(Map<String, dynamic> data, {String? except}) async {
+    if (data['origin'] == deviceId &&
+        (data['kind'] == 'sos' || data['kind'] == 'rescue') &&
+        data['statusSignature'] == null) {
+      await crypto.signStatus(data);
+    }
     final bytes = Uint8List.fromList(utf8.encode(jsonEncode(data)));
     if (bytes.length > 32768) {
       _notify('ข้อความยาวเกินกำหนด Nearby');
@@ -1388,6 +1788,14 @@ class NearbyMeshService extends ChangeNotifier {
     if (value && !_canRescue) {
       throw StateError('บัญชีนี้ยังไม่มีสิทธิ์หน่วยกู้ภัย');
     }
+    if (value && !hasRescueAttestation) {
+      await refreshAttestation(force: true);
+      if (!hasRescueAttestation) {
+        throw StateError(
+          'กรุณาออนไลน์เพื่อรับหรือต่ออายุใบรับรองกู้ภัยก่อน เปิด SOS และแชทใกล้เคียงยังใช้ออฟไลน์ได้',
+        );
+      }
+    }
     rescueActive = value;
     _rescueRevision = DateTime.now().microsecondsSinceEpoch;
     notifyListeners();
@@ -1425,7 +1833,8 @@ class NearbyMeshService extends ChangeNotifier {
     super.dispose();
   }
 
-  Future<void> stop() async {
+  Future<void> stop({bool remember = true}) async {
+    if (remember) await _rememberTransport(null);
     media.cancel();
     if (rescueActive && _ownerId != null) await setRescue(false);
     _healthTimer?.cancel();
@@ -1448,6 +1857,7 @@ class NearbyMeshService extends ChangeNotifier {
     identities.clear();
     routes.clear();
     _lastSeen.clear();
+    _pairingQueue.clear();
     pendingPeer = null;
     pendingToken = null;
     pendingName = null;

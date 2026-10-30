@@ -1,0 +1,400 @@
+{
+  "version": 8,
+  "name": "Offgrid Pathum Thani light",
+  "sources": {
+    "shortbread": {
+      "type": "vector",
+      "minzoom": 8,
+      "maxzoom": 14
+    }
+  },
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": {
+        "background-color": "#f5f3e9"
+      }
+    },
+    {
+      "id": "land",
+      "type": "fill",
+      "source": "shortbread",
+      "minzoom": 8,
+      "paint": {
+        "fill-color": "#dce8cd"
+      },
+      "source-layer": "land"
+    },
+    {
+      "id": "sites",
+      "type": "fill",
+      "source": "shortbread",
+      "minzoom": 13,
+      "paint": {
+        "fill-color": "#ebe0d7"
+      },
+      "source-layer": "sites"
+    },
+    {
+      "id": "water",
+      "type": "fill",
+      "source": "shortbread",
+      "minzoom": 8,
+      "paint": {
+        "fill-color": "#a4d6e6"
+      },
+      "source-layer": "water_polygons"
+    },
+    {
+      "id": "canals",
+      "type": "line",
+      "source": "shortbread",
+      "minzoom": 8,
+      "paint": {
+        "line-color": "#82bdcf",
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          8,
+          0.5,
+          14,
+          2.2,
+          19,
+          8
+        ]
+      },
+      "source-layer": "water_lines"
+    },
+    {
+      "id": "buildings",
+      "type": "fill",
+      "source": "shortbread",
+      "minzoom": 14,
+      "paint": {
+        "fill-color": "#d9d3c5",
+        "fill-outline-color": "#c8c0af"
+      },
+      "source-layer": "buildings"
+    },
+    {
+      "id": "street-areas",
+      "type": "fill",
+      "source": "shortbread",
+      "minzoom": 13,
+      "paint": {
+        "fill-color": "#ffffff"
+      },
+      "source-layer": "street_polygons"
+    },
+    {
+      "id": "roads-case",
+      "type": "line",
+      "source": "shortbread",
+      "minzoom": 8,
+      "paint": {
+        "line-color": "#c3bda9",
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          8,
+          1,
+          12,
+          2.5,
+          14,
+          4.5,
+          17,
+          10,
+          19,
+          20
+        ]
+      },
+      "source-layer": "streets"
+    },
+    {
+      "id": "roads",
+      "type": "line",
+      "source": "shortbread",
+      "minzoom": 8,
+      "paint": {
+        "line-color": "#ffffff",
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          8,
+          0.4,
+          12,
+          1.5,
+          14,
+          3,
+          17,
+          8,
+          19,
+          17
+        ]
+      },
+      "source-layer": "streets"
+    },
+    {
+      "id": "main-roads",
+      "type": "line",
+      "source": "shortbread",
+      "minzoom": 8,
+      "paint": {
+        "line-color": "#f7ce6f",
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          8,
+          1,
+          12,
+          3,
+          14,
+          5,
+          17,
+          11,
+          19,
+          22
+        ]
+      },
+      "source-layer": "streets",
+      "filter": [
+        "in",
+        "kind",
+        "motorway",
+        "trunk",
+        "primary",
+        "secondary",
+        "tertiary"
+      ]
+    },
+    {
+      "id": "rails",
+      "type": "line",
+      "source": "shortbread",
+      "minzoom": 11,
+      "paint": {
+        "line-color": "#807c78",
+        "line-width": 1.5,
+        "line-dasharray": [
+          3,
+          2
+        ]
+      },
+      "source-layer": "streets",
+      "filter": [
+        "==",
+        "rail",
+        true
+      ]
+    },
+    {
+      "id": "boundary",
+      "type": "line",
+      "source": "shortbread",
+      "minzoom": 8,
+      "paint": {
+        "line-color": "#9a82a0",
+        "line-width": 1.2,
+        "line-dasharray": [
+          4,
+          3
+        ]
+      },
+      "source-layer": "boundaries"
+    },
+    {
+      "id": "places",
+      "type": "symbol",
+      "source": "shortbread",
+      "minzoom": 8,
+      "paint": {
+        "text-color": "#353a38",
+        "text-halo-color": "#fffdf4",
+        "text-halo-width": 1.4
+      },
+      "source-layer": "place_labels",
+      "layout": {
+        "text-field": [
+          "coalesce",
+          [
+            "get",
+            "name"
+          ],
+          [
+            "get",
+            "name_en"
+          ],
+          [
+            "get",
+            "ref"
+          ],
+          ""
+        ],
+        "text-font": [
+          "NotoSansThai"
+        ],
+        "text-size": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          8,
+          12,
+          14,
+          15,
+          18,
+          17
+        ],
+        "text-max-width": 9,
+        "text-padding": 5,
+        "symbol-placement": "point"
+      }
+    },
+    {
+      "id": "street-names",
+      "type": "symbol",
+      "source": "shortbread",
+      "minzoom": 13,
+      "paint": {
+        "text-color": "#353a38",
+        "text-halo-color": "#fffdf4",
+        "text-halo-width": 1.4
+      },
+      "source-layer": "street_labels",
+      "layout": {
+        "text-field": [
+          "coalesce",
+          [
+            "get",
+            "name"
+          ],
+          [
+            "get",
+            "name_en"
+          ],
+          [
+            "get",
+            "ref"
+          ],
+          ""
+        ],
+        "text-font": [
+          "NotoSansThai"
+        ],
+        "text-size": 12,
+        "text-max-width": 9,
+        "text-padding": 5,
+        "symbol-placement": "line"
+      }
+    },
+    {
+      "id": "river-names",
+      "type": "symbol",
+      "source": "shortbread",
+      "minzoom": 12,
+      "paint": {
+        "text-color": "#336e87",
+        "text-halo-color": "#fffdf4",
+        "text-halo-width": 1.4
+      },
+      "source-layer": "water_lines_labels",
+      "layout": {
+        "text-field": [
+          "coalesce",
+          [
+            "get",
+            "name"
+          ],
+          [
+            "get",
+            "name_en"
+          ],
+          [
+            "get",
+            "ref"
+          ],
+          ""
+        ],
+        "text-font": [
+          "NotoSansThai"
+        ],
+        "text-size": 12,
+        "text-max-width": 9,
+        "text-padding": 5,
+        "symbol-placement": "line"
+      }
+    },
+    {
+      "id": "landmark-names",
+      "type": "symbol",
+      "source": "shortbread",
+      "minzoom": 15,
+      "paint": {
+        "text-color": "#353a38",
+        "text-halo-color": "#fffdf4",
+        "text-halo-width": 1.4
+      },
+      "source-layer": "pois",
+      "filter": [
+        "in",
+        "amenity",
+        "hospital",
+        "clinic",
+        "police",
+        "fire_station",
+        "school",
+        "university",
+        "place_of_worship"
+      ],
+      "layout": {
+        "text-field": [
+          "coalesce",
+          [
+            "get",
+            "name"
+          ],
+          [
+            "get",
+            "name_en"
+          ],
+          [
+            "get",
+            "ref"
+          ],
+          ""
+        ],
+        "text-font": [
+          "NotoSansThai"
+        ],
+        "text-size": 12,
+        "text-max-width": 9,
+        "text-padding": 5,
+        "symbol-placement": "point"
+      }
+    }
+  ]
+}

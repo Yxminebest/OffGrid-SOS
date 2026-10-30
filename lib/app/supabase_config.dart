@@ -1,13 +1,20 @@
 import 'package:flutter/foundation.dart';
 
 class SupabaseConfig {
+  static const String _projectUrl = 'https://evfopzvqsngrunopxgvl.supabase.co';
+
   static const String url = String.fromEnvironment(
     'SUPABASE_URL',
-    defaultValue: 'https://evfopzvqsngrunopxgvl.supabase.co',
+    defaultValue: _projectUrl,
   );
 
   static const String publishableKey = String.fromEnvironment(
     'SUPABASE_PUBLISHABLE_KEY',
+    // Public client key for this project, not a privileged server secret.
+    // Keep ordinary APK builds configured; another project must supply its key.
+    defaultValue: url == _projectUrl
+        ? 'sb_publishable_0sT_FRqEuUCfMK5-ZpaOqQ_gH7P0T8Q'
+        : '',
   );
 
   static const String _webRedirectOverride = String.fromEnvironment(

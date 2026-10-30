@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/user.dart';
 import 'app_notifications.dart';
 import 'chat_service.dart';
+import 'offline_media_service.dart';
 
 /// Runs independently of the visible chat route on the shared Flutter engine.
 class CloudInboxService {
@@ -25,6 +26,15 @@ class CloudInboxService {
         .listen(
           (rows) async {
             if (_owner != me.id) return;
+            try {
+              await ChatService.instance.refreshInbox(me);
+              if (_owner != me.id) return;
+              await ChatService.instance.cacheInboxMessages(me, rows);
+              OfflineMediaService.instance.wake();
+            } catch (_) {
+              // Realtime may arrive before the inbox RPC on reconnect. Keep
+              // notifications working and retry persistence on the next batch.
+            }
             for (final row in rows) {
               if (_owner != me.id) return;
               final fresh = _seen.add(row['id'].toString());

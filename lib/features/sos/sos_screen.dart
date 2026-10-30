@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../app/theme.dart';
 import '../../widgets/app_card.dart';
 import '../../widgets/location_actions.dart';
+import '../../widgets/sos_message_dialog.dart';
 import '../nearby/nearby_screen.dart';
 import '../../data/models/local_sos_record.dart';
 import '../../data/repositories/sos_repository.dart';
@@ -13,7 +15,15 @@ import '../../services/sync_service.dart';
 import '../rescue/rescue_case_chat_screen.dart';
 
 class SosScreen extends StatefulWidget {
-  const SosScreen({super.key, required this.me, this.repository});
+  const SosScreen({
+    super.key,
+    required this.me,
+    this.repository,
+    this.locationService = const LocationService(),
+    this.meshService,
+  });
+  final LocationService locationService;
+  final NearbyMeshService? meshService;
   final SosRepository? repository;
 
   final AppUser me;
@@ -27,54 +37,29 @@ class _SosScreenState extends State<SosScreen> {
   late final Stream<List<LocalSosRecord>> _records = _repository.watchForUser(
     widget.me.id,
   );
-  final LocationService _locationService = const LocationService();
+  late final LocationService _locationService = widget.locationService;
+  late final _mesh = widget.meshService ?? NearbyMeshService.instance;
+  final Set<String> _selectedNeeds = {};
 
   bool _busy = false;
 
   Future<void> _activate() async {
-    var note = 'ต้องการความช่วยเหลือฉุกเฉิน';
-
-    final confirm = await showDialog<bool>(
+    final note = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        icon: const Icon(
-          Icons.warning_amber_rounded,
-          color: AppColors.error,
-          size: 38,
-        ),
-        title: const Text('เปิด SOS หรือไม่?'),
-        content: TextFormField(
-          initialValue: note,
-          onChanged: (value) => note = value,
-          minLines: 2,
-          maxLines: 4,
-          decoration: const InputDecoration(labelText: 'ข้อความ SOS'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('ยกเลิก'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.error,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('เปิด SOS'),
-          ),
-        ],
-      ),
+      builder: (_) => SosMessageDialog(selected: _selectedNeeds),
     );
-
-    note = note.trim();
-
-    if (confirm != true || !mounted) return;
+    if (note == null || !mounted) return;
 
     setState(() => _busy = true);
 
     try {
       final location = await _locationService.getLatestLocation();
+
+      if (mounted &&
+          location != null &&
+          LocationFixWindow.accuracy(location) > 30) {
+        _show(location.qualityDescription);
+      }
 
       final record = await _repository.create(
         user: widget.me,
@@ -84,15 +69,22 @@ class _SosScreenState extends State<SosScreen> {
 
       // Local write succeeds even if radios are off. Nearby is best-effort.
       try {
-        final mesh = NearbyMeshService.instance;
+        final mesh = _mesh;
         await mesh.initializeForUser(widget.me);
         await mesh.publishSosRecord(record);
+        if (!mesh.running) {
+          unawaited(
+            mesh
+                .resumePreferred(widget.me, startIfUnset: true)
+                .catchError((_) {}),
+          );
+        }
       } catch (_) {
         /* Preserve local SOS if Nearby fails. */
       }
       if (widget.me.isMember) {
         try {
-          await SyncService.instance.syncNow();
+          unawaited(SyncService.instance.syncNow().catchError((_) {}));
         } catch (_) {
           // Queue stays local until connectivity returns.
         }
@@ -117,30 +109,10 @@ class _SosScreenState extends State<SosScreen> {
   }
 
   Future<void> _edit(LocalSosRecord record) async {
-    var editedMessage = record.message;
-
     final value = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('แก้ไขข้อความ SOS'),
-        content: TextFormField(
-          initialValue: editedMessage,
-          onChanged: (value) => editedMessage = value,
-          autofocus: true,
-          minLines: 2,
-          maxLines: 4,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('ยกเลิก'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, editedMessage.trim()),
-            child: const Text('บันทึก'),
-          ),
-        ],
-      ),
+      builder: (_) =>
+          SosMessageDialog(initialMessage: record.message, editing: true),
     );
 
     if (!mounted || value == null || value.isEmpty) return;
@@ -148,7 +120,7 @@ class _SosScreenState extends State<SosScreen> {
     try {
       await _repository.updateMessage(record, value);
       // Use the persisted case ID, including after an app restart.
-      final mesh = NearbyMeshService.instance;
+      final mesh = _mesh;
       final latest = await _repository.findById(record.id);
       if (latest != null && latest.isActive) {
         try {
@@ -158,12 +130,41 @@ class _SosScreenState extends State<SosScreen> {
       }
 
       if (widget.me.isMember) {
-        await SyncService.instance.syncNow();
+        unawaited(SyncService.instance.syncNow().catchError((_) {}));
       }
     } catch (e) {
       if (!mounted) return;
 
       _show('แก้ไข SOS ไม่สำเร็จ: $e', error: true);
+    }
+  }
+
+  Future<void> _refreshLocation(LocalSosRecord record) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final location = await _locationService.getLatestLocation();
+      if (!mounted) return;
+      if (location == null || !LocationFixWindow.valid(location)) {
+        _show('ยังไม่มี GPS ใหม่ คงพิกัดเดิมไว้ ลองรับในที่โล่งอีกครั้ง');
+        return;
+      }
+      final latest = await _repository.updateLocation(record, location);
+      if (latest == null) return;
+      try {
+        await _mesh.initializeForUser(widget.me);
+        await _mesh.publishSosRecord(latest);
+      } catch (_) {
+        /* Keep local update queued for the next connection. */
+      }
+      if (widget.me.isMember) {
+        unawaited(SyncService.instance.syncNow().catchError((_) {}));
+      }
+      _show('อัปเดตพิกัด SOS แล้ว · ${location.qualityDescription}');
+    } catch (_) {
+      _show('อัปเดตพิกัดไม่สำเร็จ คง SOS เดิมไว้', error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -195,12 +196,12 @@ class _SosScreenState extends State<SosScreen> {
     try {
       await _repository.stop(record);
       try {
-        await NearbyMeshService.instance.initializeForUser(widget.me);
-        await NearbyMeshService.instance.stopSos(caseId: record.id);
+        await _mesh.initializeForUser(widget.me);
+        await _mesh.stopSos(caseId: record.id);
       } catch (_) {}
 
       if (widget.me.isMember) {
-        await SyncService.instance.syncNow();
+        unawaited(SyncService.instance.syncNow().catchError((_) {}));
       }
     } catch (e) {
       if (!mounted) return;
@@ -251,7 +252,7 @@ class _SosScreenState extends State<SosScreen> {
       ),
       body: SafeArea(
         child: ListenableBuilder(
-          listenable: NearbyMeshService.instance,
+          listenable: _mesh,
           builder: (context, child) => StreamBuilder<List<LocalSosRecord>>(
             stream: _records,
             builder: (context, snapshot) {
@@ -276,10 +277,21 @@ class _SosScreenState extends State<SosScreen> {
                 padding: const EdgeInsets.fromLTRB(20, 18, 20, 30),
                 children: [
                   if (active == null)
-                    _InactivePanel(busy: _busy, onActivate: _activate)
+                    _InactivePanel(
+                      busy: _busy,
+                      onActivate: _activate,
+                      selected: _selectedNeeds,
+                      onChanged: (need, value) => setState(() {
+                        value
+                            ? _selectedNeeds.add(need)
+                            : _selectedNeeds.remove(need);
+                      }),
+                    )
                   else
                     _ActivePanel(
                       record: active,
+                      busy: _busy,
+                      onRefreshLocation: () => _refreshLocation(active!),
                       onEdit: () => _edit(active!),
                       onStop: () => _stop(active!),
                       onRetry: active.syncState == 'error'
@@ -323,15 +335,14 @@ class _SosScreenState extends State<SosScreen> {
                       ),
                     ),
                   ],
-                  if (active != null &&
-                      NearbyMeshService.instance.activeSosId != null)
+                  if (active != null && _mesh.activeSosId != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 14),
                       child: OutlinedButton.icon(
                         icon: const Icon(Icons.chat_bubble_outline),
-                        label: const Text('แชทกับหน่วยกู้ภัยผ่าน Nearby'),
+                        label: const Text('แชทกับบุคคลใกล้เคียงผ่าน Nearby'),
                         onPressed: () {
-                          final mesh = NearbyMeshService.instance;
+                          final mesh = _mesh;
                           final replies = mesh.inbox
                               .where(
                                 (m) =>
@@ -347,7 +358,7 @@ class _SosScreenState extends State<SosScreen> {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content: Text(
-                                  'ยังไม่มีข้อความจากหน่วยกู้ภัยใน Nearby กรุณารอการติดต่อ',
+                                  'ยังไม่มีข้อความตอบกลับจากบุคคลใกล้เคียง เปิดแท็บแชทเพื่อเลือกผู้ติดต่อได้',
                                 ),
                               ),
                             );
@@ -361,7 +372,9 @@ class _SosScreenState extends State<SosScreen> {
                                 caseId: mesh.activeSosId!,
                                 otherDevice: replies.first.data['origin']
                                     .toString(),
-                                title: 'แชทกับหน่วยกู้ภัย',
+                                title: mesh.chatPeerName(
+                                  replies.first.data['origin'].toString(),
+                                ),
                               ),
                             ),
                           );
@@ -416,7 +429,14 @@ class _SosScreenState extends State<SosScreen> {
 }
 
 class _InactivePanel extends StatelessWidget {
-  const _InactivePanel({required this.busy, required this.onActivate});
+  const _InactivePanel({
+    required this.busy,
+    required this.onActivate,
+    required this.selected,
+    required this.onChanged,
+  });
+  final Set<String> selected;
+  final void Function(String, bool) onChanged;
   final bool busy;
   final VoidCallback onActivate;
   @override
@@ -465,18 +485,8 @@ class _InactivePanel extends StatelessWidget {
           style: TextStyle(color: context.colors.muted, height: 1.7),
         ),
         const SizedBox(height: 20),
-        _PreparationStep(
-          number: '1',
-          title: 'ระบุเหตุการณ์',
-          detail: 'ตรวจข้อความและพิกัดก่อนยืนยัน',
-        ),
-        const SizedBox(height: 15),
-        _PreparationStep(
-          number: '2',
-          title: 'บันทึก แล้วเชื่อมต่อเพื่อส่งต่อ',
-          detail: 'บันทึกในเครื่องได้ แม้ไม่มีอินเทอร์เน็ต',
-        ),
-        const SizedBox(height: 24),
+        SosQuickNeeds(selected: selected, onChanged: onChanged),
+        const SizedBox(height: 20),
         FilledButton.icon(
           style: FilledButton.styleFrom(
             backgroundColor: AppColors.sos,
@@ -494,7 +504,9 @@ class _InactivePanel extends StatelessWidget {
                   ),
                 )
               : const Icon(Icons.sos_rounded),
-          label: Text(busy ? 'กำลังบันทึก SOS…' : 'เปิด SOS · ขอความช่วยเหลือ'),
+          label: Text(
+            busy ? 'กำลังหาพิกัดและบันทึก…' : 'เปิด SOS · ขอความช่วยเหลือ',
+          ),
         ),
         const SizedBox(height: 12),
         Text(
@@ -511,70 +523,20 @@ class _InactivePanel extends StatelessWidget {
   );
 }
 
-class _PreparationStep extends StatelessWidget {
-  const _PreparationStep({
-    required this.number,
-    required this.title,
-    required this.detail,
-  });
-  final String number, title, detail;
-  @override
-  Widget build(BuildContext context) => Row(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Container(
-        width: 27,
-        height: 27,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: context.colors.surfaceSoft,
-          shape: BoxShape.circle,
-        ),
-        child: Text(
-          number,
-          style: TextStyle(
-            color: context.colors.info,
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-      const SizedBox(width: 12),
-      Expanded(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              detail,
-              style: TextStyle(
-                color: context.colors.muted,
-                fontSize: 12,
-                height: 1.5,
-              ),
-            ),
-          ],
-        ),
-      ),
-    ],
-  );
-}
-
 class _ActivePanel extends StatelessWidget {
   const _ActivePanel({
     required this.record,
     required this.onEdit,
     required this.onStop,
+    required this.onRefreshLocation,
+    required this.busy,
     this.onRetry,
   });
 
   final LocalSosRecord record;
   final VoidCallback onEdit;
-  final VoidCallback onStop;
+  final VoidCallback onStop, onRefreshLocation;
+  final bool busy;
   final VoidCallback? onRetry;
 
   @override
@@ -619,6 +581,7 @@ class _ActivePanel extends StatelessWidget {
           LocationActions(
             latitude: record.latitude!,
             longitude: record.longitude!,
+            accuracy: record.accuracy,
           ),
           if (record.isLastKnownLocation || record.locationRecordedAt == null)
             const Text(
@@ -631,6 +594,16 @@ class _ActivePanel extends StatelessWidget {
               style: TextStyle(color: context.colors.muted, fontSize: 12),
             ),
         ],
+        if (record.accuracy != null)
+          Text(
+            'ความคลาดเคลื่อน GPS ประมาณ ${record.accuracy!.round()} ม.${record.accuracy! > 30 ? ' · พิกัดยังหยาบ' : ''}',
+            style: TextStyle(color: context.colors.muted, fontSize: 12),
+          ),
+        OutlinedButton.icon(
+          onPressed: busy ? null : onRefreshLocation,
+          icon: const Icon(Icons.gps_fixed),
+          label: Text(busy ? 'กำลังรับพิกัดใหม่…' : 'อัปเดตพิกัด SOS (GPS)'),
+        ),
         const SizedBox(height: 10),
         _InfoLine(
           icon: Icons.sync_rounded,
@@ -748,6 +721,7 @@ class _HistoryCard extends StatelessWidget {
                 LocationActions(
                   latitude: record.latitude!,
                   longitude: record.longitude!,
+                  accuracy: record.accuracy,
                   compact: true,
                 ),
               TextButton.icon(

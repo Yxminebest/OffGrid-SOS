@@ -4,6 +4,8 @@ import '../../app/theme.dart';
 import '../../models/user.dart';
 import '../../services/nearby_mesh_service.dart';
 import 'rescue_case_chat_screen.dart';
+import 'rescue_history_screen.dart';
+import 'rescue_verification_history_screen.dart';
 import '../../widgets/location_actions.dart';
 
 class RescueScreen extends StatefulWidget {
@@ -84,6 +86,7 @@ class _RescueScreenState extends State<RescueScreen> {
     final body = m.data['data'] as Map;
     final lat = double.tryParse(body['lat']?.toString() ?? '');
     final lng = double.tryParse(body['lng']?.toString() ?? '');
+    final recordedAt = DateTime.tryParse(body['recordedAt']?.toString() ?? '');
     final origin = m.data['origin']?.toString() ?? '';
     final caseId = body['caseId']?.toString() ?? '';
     showModalBottomSheet<void>(
@@ -122,7 +125,7 @@ class _RescueScreenState extends State<RescueScreen> {
                 ),
               if (body['recordedAt'] != null)
                 Text(
-                  'เวลาที่บันทึกพิกัด: ${body['recordedAt']}',
+                  'เวลาที่บันทึกพิกัด: ${recordedAt == null ? 'ไม่ทราบเวลา' : LocationActions.recordedAt(recordedAt)}',
                   style: TextStyle(color: context.colors.muted, fontSize: 12),
                 ),
               const SizedBox(height: 16),
@@ -267,6 +270,13 @@ class _RescueScreenState extends State<RescueScreen> {
                         ),
                       ),
                       const SizedBox(height: 14),
+                      Text(
+                        mesh.attestationStatus,
+                        style: TextStyle(
+                          color: onDuty ? Colors.white : context.colors.muted,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
                       FilledButton.icon(
                         style: onDuty
                             ? FilledButton.styleFrom(
@@ -289,6 +299,29 @@ class _RescueScreenState extends State<RescueScreen> {
                         ),
                       ),
                     ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                leading: const Icon(Icons.history),
+                title: const Text('ประวัติเคส SOS ที่ได้รับ'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        RescueHistoryScreen(me: widget.me, service: mesh),
+                  ),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.verified_outlined),
+                title: const Text('ประวัติการขอสิทธิ์กู้ภัย'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        RescueVerificationHistoryScreen(me: widget.me),
                   ),
                 ),
               ),
@@ -470,7 +503,7 @@ class _RescueScreenState extends State<RescueScreen> {
                 ),
               const SizedBox(height: 16),
               Text(
-                'ข้อจำกัด: รับเฉพาะ SOS ผ่าน Nearby ที่จับคู่กันแล้ว • ไม่ใช่ระบบแจ้งเตือนฉุกเฉินที่รับประกันการส่ง • แผนที่ต้องใช้แอปที่มีข้อมูลแผนที่รองรับ',
+                'ข้อจำกัด: รับเฉพาะ SOS ผ่าน Nearby ที่จับคู่กันแล้ว • ไม่ใช่ระบบแจ้งเตือนฉุกเฉินที่รับประกันการส่ง • เปิดพิกัดในแอปได้ ภาพถนนขึ้นกับอินเทอร์เน็ตและแคชที่มี',
                 style: TextStyle(
                   color: context.colors.muted,
                   fontSize: 12,

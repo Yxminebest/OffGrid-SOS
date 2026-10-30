@@ -1,3 +1,4 @@
+import 'support/mesh_issuer.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:sembast/sembast_memory.dart';
@@ -306,10 +307,14 @@ void main() {
   );
 
   test('reset and account switch clear private Nearby state', () async {
-    final mesh = NearbyMeshService.withDatabase(local);
+    final mesh = NearbyMeshService.withDatabase(
+      local,
+      verifyAttestation: verifyTestAttestation,
+    );
     await sos.create(user: member, message: 'private');
     await mesh.initializeForUser(member.copyWith(role: AppRole.rescuer));
     final oldIdentity = mesh.deviceId;
+    await grantTestAttestation(mesh, member.copyWith(role: AppRole.rescuer));
     await mesh.setRescue(true);
     mesh.pendingPeer = 'pending';
     mesh.pendingToken = 'secret';

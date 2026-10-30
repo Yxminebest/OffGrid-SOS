@@ -79,6 +79,16 @@ class _OffGridSosAppState extends State<OffGridSosApp> {
             break;
 
           case AuthChangeEvent.signedOut:
+            if (!AuthService.isClearing) {
+              final local = await AuthService.restoreLocalIdentity();
+              if (local != null && mounted) {
+                setState(() {
+                  _me = local;
+                  _loading = false;
+                });
+                break;
+              }
+            }
             await SyncService.instance.stop();
             await NearbyMeshService.instance.resetSession();
             if (AuthService.currentAuthUser != null) break;

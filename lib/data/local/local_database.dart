@@ -81,10 +81,19 @@ class LocalDatabase {
 
       final nearbyOwner = Finder(filter: Filter.equals('owner', ownerId));
       await stringMapStoreFactory
+          .store('unified_contacts')
+          .delete(txn, finder: nearbyOwner);
+      await stringMapStoreFactory
+          .store('range_test_results')
+          .delete(txn, finder: nearbyOwner);
+      await stringMapStoreFactory
           .store('nearby_messages')
           .delete(txn, finder: nearbyOwner);
       await stringMapStoreFactory
           .store('nearby_sos_states')
+          .delete(txn, finder: nearbyOwner);
+      await stringMapStoreFactory
+          .store('nearby_rescue_states')
           .delete(txn, finder: nearbyOwner);
       await metaStore.delete(
         txn,

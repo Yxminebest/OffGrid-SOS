@@ -21,6 +21,9 @@ class NearbyChatRepository {
   final LocalDatabase _local;
   static final messages = stringMapStoreFactory.store('nearby_messages');
   static final states = stringMapStoreFactory.store('nearby_sos_states');
+  static final rescueStates = stringMapStoreFactory.store(
+    'nearby_rescue_states',
+  );
 
   Future<bool> save(
     String owner,
@@ -255,15 +258,50 @@ class NearbyChatRepository {
     });
   }
 
+  Stream<List<Map<String, dynamic>>> watchSos(String owner) async* {
+    final db = await _local.database;
+    yield* states
+        .query(finder: Finder(filter: Filter.equals('owner', owner)))
+        .onSnapshots(db)
+        .map(
+          (rows) => rows
+              .map(
+                (row) =>
+                    Map<String, dynamic>.from(row.value['envelope'] as Map),
+              )
+              .toList(),
+        );
+  }
+
   Future<List<Map<String, dynamic>>> loadSos(String owner) async {
     final db = await _local.database;
     final rows = await states.find(
       db,
       finder: Finder(filter: Filter.equals('owner', owner)),
     );
-    return rows
+    final rescue = await rescueStates.find(
+      db,
+      finder: Finder(filter: Filter.equals('owner', owner)),
+    );
+    return [...rows, ...rescue]
         .map((r) => Map<String, dynamic>.from(r.value['envelope'] as Map))
         .toList();
+  }
+
+  Future<bool> saveRescue(String owner, Map<String, dynamic> envelope) async {
+    final body = envelope['data'] as Map;
+    final revision = body['revision'] as int;
+    final db = await _local.database;
+    return db.transaction((txn) async {
+      final ref = rescueStates.record('$owner:${envelope['origin']}');
+      final previous = await ref.get(txn);
+      final old = (previous?['envelope'] as Map?)?['data'] as Map?;
+      if (old != null && revision <= (old['revision'] as int? ?? 0)) {
+        return false;
+      }
+      await ref.put(txn, {'owner': owner, 'envelope': envelope});
+      return true;
+    });
   }
 
   Future<bool> saveSos(String owner, Map<String, dynamic> envelope) async {

@@ -14,11 +14,22 @@ import 'app_notifications.dart';
 import 'chat_media_cache.dart';
 import 'nearby_media_files.dart';
 import 'chat_camera_service.dart';
+import 'unified_chat_service.dart';
+import 'offline_media_service.dart';
 
 class AuthService {
   static const FlutterSecureStorage _store = FlutterSecureStorage();
+  static bool isClearing = false;
 
   static SupabaseClient get _supabase => Supabase.instance.client;
+
+  static SupabaseClient? get _initializedSupabase {
+    try {
+      return Supabase.instance.client;
+    } on AssertionError {
+      return null;
+    }
+  }
 
   static Stream<AuthState> get authStateChanges =>
       _supabase.auth.onAuthStateChange;
@@ -263,18 +274,31 @@ class AuthService {
     await clear();
   }
 
+  /// Local identity is sufficient for D2D, even if a cloud session expired.
   static Future<AppUser?> restoreIdentity() async {
-    if (_supabase.auth.currentSession != null &&
-        _supabase.auth.currentUser != null) {
-      try {
-        return await _loadSignedInMember();
-      } catch (_) {
-        final cached = await _restoreCachedMember();
-        if (cached != null) return cached;
-      }
+    final local = await restoreLocalIdentity();
+    if (local != null) {
+      if (!local.isMember || !SupabaseConfig.isConfigured) return local;
+      final signedIn = _initializedSupabase?.auth.currentUser;
+      if (signedIn == null || signedIn.id == local.id) return local;
+      // Never attach another account's local history to the active cloud user.
     }
+    final supabase = _initializedSupabase;
+    if (!SupabaseConfig.isConfigured || supabase?.auth.currentUser == null) {
+      return null;
+    }
+    try {
+      return await _loadSignedInMember(
+        supabase!,
+      ).timeout(const Duration(seconds: 6));
+    } catch (_) {
+      return null;
+    }
+  }
 
+  static Future<AppUser?> restoreLocalIdentity() async {
     final isMember = await _store.read(key: 'isMember');
+    if (isMember == '1') return _restoreCachedMember();
     if (isMember == '0') {
       final id = await _store.read(key: 'deviceId');
       final first = await _store.read(key: 'firstName');
@@ -331,24 +355,25 @@ class AuthService {
     return _loadSignedInMember();
   }
 
-  static Future<AppUser> _loadSignedInMember() async {
-    final authUser = _supabase.auth.currentUser;
+  static Future<AppUser> _loadSignedInMember([SupabaseClient? client]) async {
+    final supabase = client ?? _supabase;
+    final authUser = supabase.auth.currentUser;
     if (authUser == null) {
       throw const AuthServiceException('ไม่พบ session ของผู้ใช้');
     }
 
     final results = await Future.wait<dynamic>([
-      _supabase
+      supabase
           .from('profiles')
           .select('id, first_name, last_name, photo_path')
           .eq('id', authUser.id)
           .single(),
-      _supabase
+      supabase
           .from('user_private')
           .select('phone')
           .eq('user_id', authUser.id)
           .maybeSingle(),
-      _supabase
+      supabase
           .from('user_roles')
           .select('role')
           .eq('user_id', authUser.id)
@@ -366,7 +391,7 @@ class AuthService {
 
     if (photoPath != null && photoPath.isNotEmpty) {
       try {
-        signedPhotoUrl = await _supabase.storage
+        signedPhotoUrl = await supabase.storage
             .from('avatars')
             .createSignedUrl(photoPath, const Duration(hours: 1).inSeconds);
       } catch (_) {
@@ -650,6 +675,8 @@ class AuthService {
       }
 
       await CloudInboxService.instance.stop();
+      UnifiedChatService.instance.stop();
+      OfflineMediaService.instance.stop();
       await AppNotifications.instance.stopBackground();
       await SyncService.instance.stop();
       await NearbyMeshService.instance.resetSession();
@@ -803,6 +830,26 @@ class AuthService {
     return Map<String, dynamic>.from(data);
   }
 
+  static Future<List<Map<String, dynamic>>>
+  getMyRescueVerificationHistory() async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return [];
+    final rows = <Map<String, dynamic>>[];
+    for (var offset = 0; ; offset += 200) {
+      final page = await _supabase
+          .from('rescue_verification_requests')
+          .select(
+            'id, organization_name, status, submitted_at, reviewed_at, rejection_reason',
+          )
+          .eq('user_id', user.id)
+          .order('submitted_at', ascending: false)
+          .order('id')
+          .range(offset, offset + 199);
+      rows.addAll(page.map((row) => Map<String, dynamic>.from(row)));
+      if (page.length < 200) return rows;
+    }
+  }
+
   static Future<List<Map<String, dynamic>>> getRescueVerificationRequests({
     String? status,
   }) async {
@@ -910,23 +957,30 @@ class AuthService {
   }
 
   static Future<void> clear() async {
-    await CloudInboxService.instance.stop();
-    await AppNotifications.instance.stopBackground();
-    // Finish/cancel the previous account's work before discarding its session.
-    await SyncService.instance.stop();
-    await NearbyMeshService.instance.resetSession();
+    isClearing = true;
     try {
-      await _supabase.auth.signOut(scope: SignOutScope.local);
-    } catch (_) {}
+      await CloudInboxService.instance.stop();
+      UnifiedChatService.instance.stop();
+      OfflineMediaService.instance.stop();
+      await AppNotifications.instance.stopBackground();
+      // Finish/cancel the previous account's work before discarding its session.
+      await SyncService.instance.stop();
+      await NearbyMeshService.instance.resetSession();
+      try {
+        await _supabase.auth.signOut(scope: SignOutScope.local);
+      } catch (_) {}
 
-    await _store.delete(key: 'firstName');
-    await _store.delete(key: 'lastName');
-    await _store.delete(key: 'email');
-    await _store.delete(key: 'phone');
-    await _store.delete(key: 'photoPath');
-    await _store.delete(key: 'role');
-    await _store.delete(key: 'supabaseUserId');
-    await _store.delete(key: 'isMember');
+      await _store.delete(key: 'firstName');
+      await _store.delete(key: 'lastName');
+      await _store.delete(key: 'email');
+      await _store.delete(key: 'phone');
+      await _store.delete(key: 'photoPath');
+      await _store.delete(key: 'role');
+      await _store.delete(key: 'supabaseUserId');
+      await _store.delete(key: 'isMember');
+    } finally {
+      isClearing = false;
+    }
   }
 
   static String _unexpectedAuthMessage(

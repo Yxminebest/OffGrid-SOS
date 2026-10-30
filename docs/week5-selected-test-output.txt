@@ -1,0 +1,66 @@
+Resolving dependencies...
+Downloading packages...
+  android_file_picker 2.1.0 (2.1.2 available)
+  clock 1.1.2 (1.1.3 available)
+  code_assets 1.2.1 (2.1.0 available)
+  cross_file 0.3.5+5 (0.4.0 available)
+  crypto 3.0.7 (3.0.8 available)
+  file_picker 13.1.0 (13.3.0 available)
+  file_picker_darwin 2.3.0 (2.4.0 available)
+  file_picker_web 4.1.0 (4.2.0 available)
+  file_selector_macos 0.9.5+1 (0.9.5+2 available)
+  geolocator 14.0.1 (14.1.2 available)
+  geolocator_android 5.1.1+1 (5.2.1 available)
+  geolocator_apple 2.3.15 (2.4.3 available)
+  geolocator_platform_interface 4.4.0 (4.4.1 available)
+  hooks 2.0.2 (2.2.0 available)
+  idb_shim 2.10.0+1 (2.11.1 available)
+  image_picker_ios 0.8.13+10 (0.8.13+13 available)
+  jni 1.1.0 (1.1.1 available)
+  latlong2 0.9.1 (0.10.1 available)
+  matcher 0.12.19 (0.12.20 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.0 (1.19.0 available)
+  objective_c 9.5.0 (9.6.2 available)
+  permission_handler 12.0.3 (13.0.2 available)
+  permission_handler_android 13.0.1 (14.1.1 available)
+  permission_handler_apple 9.6.2 (9.6.4 available)
+  petitparser 7.0.2 (7.1.0 available)
+  posix 6.5.2 (6.5.4 available)
+  record_use 0.6.0 (1.1.1 available)
+  shared_preferences_android 2.4.28 (2.5.4 available)
+  shared_preferences_foundation 2.5.7 (2.6.1 available)
+  stack_trace 1.12.1 (1.12.2 available)
+  test_api 0.7.11 (0.7.15 available)
+  vector_math 2.2.0 (2.4.4 available)
+  video_player_avfoundation 2.12.1 (2.12.3 available)
+  vm_service 15.3.0 (15.4.0 available)
+  web 1.1.1 (1.1.2 available)
+  xml 7.0.1 (7.1.0 available)
+Got dependencies!
+37 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading C:/Users/user/Desktop/offgrid_sos/test/mesh_attestation_test.dart
+00:00 +0: C:/Users/user/Desktop/offgrid_sos/test/mesh_attestation_test.dart: signed account and rescue role verify without network
+00:00 +1: C:/Users/user/Desktop/offgrid_sos/test/mesh_attestation_test.dart: production trust anchor rejects the test issuer
+00:00 +2: C:/Users/user/Desktop/offgrid_sos/test/mesh_attestation_test.dart: changing a signed role does not create a rescuer
+00:00 +3: C:/Users/user/Desktop/offgrid_sos/test/mesh_attestation_test.dart: copying proof to a different device or account fails
+00:00 +4: C:/Users/user/Desktop/offgrid_sos/test/mesh_attestation_test.dart: expired valid signature cannot retain rescue authorization
+00:00 +5: C:/Users/user/Desktop/offgrid_sos/test/mesh_attestation_test.dart: future-issued and excessive lifetime proofs fail closed
+00:00 +6: loading C:/Users/user/Desktop/offgrid_sos/test/mesh_crypto_test.dart
+00:02 +6: C:/Users/user/Desktop/offgrid_sos/test/mesh_crypto_test.dart: keys persist, TOFU rejects a replacement key, ciphertext binds recipient
+00:03 +7: loading C:/Users/user/Desktop/offgrid_sos/test/home_return_policy_test.dart
+00:05 +7: C:/Users/user/Desktop/offgrid_sos/test/home_return_policy_test.dart: new launch and permission dialogs do not trigger duplicate navigation
+00:05 +8: C:/Users/user/Desktop/offgrid_sos/test/home_return_policy_test.dart: real background returns home once on resume
+00:05 +9: C:/Users/user/Desktop/offgrid_sos/test/home_return_policy_test.dart: camera and picker return to originating screen
+00:05 +10: C:/Users/user/Desktop/offgrid_sos/test/home_return_policy_test.dart: failed external launch releases guard
+00:05 +11: loading C:/Users/user/Desktop/offgrid_sos/test/location_quality_test.dart
+00:07 +11: C:/Users/user/Desktop/offgrid_sos/test/location_quality_test.dart: poor jitter keeps recent real better fix without changing accuracy or time
+00:07 +12: C:/Users/user/Desktop/offgrid_sos/test/location_quality_test.dart: real movement and expired window do not freeze old position
+00:07 +13: C:/Users/user/Desktop/offgrid_sos/test/location_quality_test.dart: collection selects best fix and cancels stream at deadline
+00:07 +14: C:/Users/user/Desktop/offgrid_sos/test/location_quality_test.dart: no readings returns null, stream failure keeps real poor accuracy
+00:07 +15: C:/Users/user/Desktop/offgrid_sos/test/location_quality_test.dart: three distinct good fixes settle early without lowering reported accuracy
+00:07 +16: loading C:/Users/user/Desktop/offgrid_sos/test/network_service_test.dart
+00:09 +16: C:/Users/user/Desktop/offgrid_sos/test/network_service_test.dart: Wi-Fi D2D without Internet stays offline; cloud recovery needs no radio change
+00:09 +17: C:/Users/user/Desktop/offgrid_sos/test/network_service_test.dart: no interface does not probe cloud and exceptions leave offline mode usable
+00:09 +18: All tests passed!

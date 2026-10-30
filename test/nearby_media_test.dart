@@ -27,33 +27,71 @@ void main() {
   late Directory temporary;
   late Map<String, NearbyMeshService> nodes;
   late Map<String, LocalDatabase> databases;
-  late List<Packet> queue, history;
+  late List<Packet> queue, history, clearHistory;
   bool interrupt = false, corrupt = false;
   late Uint8List content;
   late File original;
+
+  Future<Map<String, dynamic>> openFrame(Packet packet) async {
+    final frame = packet.frame;
+    final sender = nodes[packet.from]!;
+    if (frame['kind'] != 'routed' || frame['origin'] != sender.deviceId) {
+      return frame;
+    }
+    final body = Map<String, dynamic>.from(frame['data'] as Map);
+    final target = body['target'] as String;
+    return sender.crypto.open(
+      sender.routes[target]!.certificate,
+      body,
+      '${frame['origin']}|$target|${frame['id']}',
+    );
+  }
+
+  Future<Map<String, dynamic>> sealFrame(
+    Packet packet,
+    Map<String, dynamic> clear,
+  ) async {
+    final frame = Map<String, dynamic>.from(packet.frame);
+    final body = Map<String, dynamic>.from(frame['data'] as Map);
+    final target = body['target'] as String;
+    final sender = nodes[packet.from]!;
+    frame['data'] = {
+      'target': target,
+      ...await sender.crypto.seal(
+        sender.routes[target]!.certificate,
+        clear,
+        '${frame['origin']}|$target|${frame['id']}',
+      ),
+    };
+    return frame;
+  }
 
   NearbyMeshService node(AppUser user) => NearbyMeshService.withDatabase(
     databases[user.id]!,
     mediaFiles: NearbyMediaFiles(root: '${temporary.path}/${user.id}'),
     sendBytes: (endpoint, bytes) async {
       expect(bytes.length, lessThanOrEqualTo(32768));
-      final frame = Map<String, dynamic>.from(
+      var frame = Map<String, dynamic>.from(
         jsonDecode(utf8.decode(bytes)) as Map,
       );
+      final packet = (from: user.id, to: endpoint, frame: frame);
+      final clear = Map<String, dynamic>.from(await openFrame(packet));
       if (interrupt &&
-          frame['kind'] == 'media_chunk' &&
-          (frame['data'] as Map)['offset'] >= NearbyMediaFiles.chunkBytes) {
+          clear['kind'] == 'media_chunk' &&
+          (clear['data'] as Map)['offset'] >= NearbyMediaFiles.chunkBytes) {
         throw StateError('simulated radio loss');
       }
-      if (corrupt && frame['kind'] == 'media_chunk') {
-        final chunk = base64Decode((frame['data'] as Map)['bytes']);
+      if (corrupt && clear['kind'] == 'media_chunk') {
+        final chunk = base64Decode((clear['data'] as Map)['bytes']);
         chunk[0] ^= 1;
-        (frame['data'] as Map)['bytes'] = base64Encode(chunk);
+        (clear['data'] as Map)['bytes'] = base64Encode(chunk);
+        frame = await sealFrame(packet, clear);
         corrupt = false;
       }
-      final packet = (from: user.id, to: endpoint, frame: frame);
-      queue.add(packet);
-      history.add(packet);
+      clearHistory.add((from: user.id, to: endpoint, frame: clear));
+      final outgoing = (from: user.id, to: endpoint, frame: frame);
+      queue.add(outgoing);
+      history.add(outgoing);
     },
   );
 
@@ -107,6 +145,7 @@ void main() {
     databases = {};
     queue = [];
     history = [];
+    clearHistory = [];
     interrupt = false;
     corrupt = false;
     content = Uint8List.fromList(List.generate(64001, (i) => (i * 17) % 251));
@@ -175,6 +214,69 @@ void main() {
   );
 
   test(
+    'three-node media transfer resumes when the relay returns without Internet',
+    () async {
+      const carol = AppUser(
+        id: 'media-c',
+        firstName: 'C',
+        lastName: 'Receiver',
+        isMember: false,
+      );
+      databases[carol.id] = LocalDatabase.withDatabase(
+        await newDatabaseFactoryMemory().openDatabase(carol.id),
+      );
+      nodes[carol.id] = node(carol);
+      await nodes[carol.id]!.initializeForUser(carol);
+      await pair();
+      await nodes[bob.id]!.transportConnected(carol.id);
+      await nodes[carol.id]!.transportConnected(bob.id);
+      await pumpUntil(
+        () async =>
+            nodes[alice.id]!.peerForDevice(nodes[carol.id]!.deviceId) != null,
+      );
+      await nodes[alice.id]!.sendAttachment(
+        target: nodes[carol.id]!.deviceId,
+        path: original.path,
+        name: 'offline-bridge.mp4',
+        type: 'video',
+      );
+      final rows = await nodes[alice.id]!.chats
+          .watchMessages(alice.id, nodes[carol.id]!.deviceId)
+          .first;
+      final id = (rows.single['envelope'] as Map)['id'] as String;
+      await pumpUntil(
+        () async =>
+            (nodes[carol.id]!.media.progress[id]?.bytes ?? 0) >=
+            NearbyMediaFiles.chunkBytes,
+      );
+      await nodes[bob.id]!.stop();
+      await pumpUntil(
+        () async =>
+            nodes[alice.id]!.media.progress[id]?.error != null ||
+            await delivered(id),
+      );
+      expect(await delivered(id), isFalse);
+      queue.clear();
+      nodes[bob.id]!.dispose();
+      nodes[bob.id] = node(bob);
+      await nodes[bob.id]!.initializeForUser(bob);
+      await pair();
+      await nodes[bob.id]!.transportConnected(carol.id);
+      await nodes[carol.id]!.transportConnected(bob.id);
+      await pumpUntil(() => delivered(id));
+      final saved = await nodes[carol.id]!.chats.find(carol.id, id);
+      expect(await File(saved!['localPath'] as String).readAsBytes(), content);
+      expect(
+        await nodes[carol.id]!.chats
+            .watchMessages(carol.id, nodes[alice.id]!.deviceId)
+            .first,
+        hasLength(1),
+      );
+      expect(await nodes[bob.id]!.chats.watchThreads(bob.id).first, isEmpty);
+    },
+  );
+
+  test(
     'camera recovery with the same message ID does not create duplicates',
     () async {
       for (var n = 0; n < 2; n++) {
@@ -204,7 +306,7 @@ void main() {
       expect(row?['delivery'], 'delivered');
       expect(await File(row!['localPath'] as String).readAsBytes(), content);
       expect(
-        history.where((p) => p.frame['kind'] == 'media_chunk').length,
+        clearHistory.where((p) => p.frame['kind'] == 'media_chunk').length,
         greaterThan(1),
       );
       expect(
@@ -243,11 +345,14 @@ void main() {
       nodes[alice.id]!.media.cancel();
       interrupt = false;
       history.clear();
+      clearHistory.clear();
       queue.clear();
       await pair();
       await nodes[alice.id]!.retryFor(nodes[bob.id]!.deviceId);
       await pumpUntil(() => delivered(id));
-      final chunks = history.where((p) => p.frame['kind'] == 'media_chunk');
+      final chunks = clearHistory.where(
+        (p) => p.frame['kind'] == 'media_chunk',
+      );
       expect(
         (chunks.first.frame['data'] as Map)['offset'],
         NearbyMediaFiles.chunkBytes,
@@ -270,8 +375,14 @@ void main() {
       expect(await nodes[bob.id]!.chats.find(bob.id, id), isNull);
       await nodes[alice.id]!.retryFor(nodes[bob.id]!.deviceId);
       await pumpUntil(() => delivered(id));
-      final start = history.firstWhere((p) => p.frame['kind'] == 'media_start');
-      await nodes[bob.id]!.handleEnvelope(alice.id, start.frame);
+      final index = clearHistory.indexWhere(
+        (p) => p.frame['kind'] == 'media_start',
+      );
+      final start = clearHistory[index];
+      await nodes[bob.id]!.handleEnvelope(
+        alice.id,
+        await sealFrame(history[index], start.frame),
+      );
       await pumpUntil(() async => queue.isEmpty);
       expect(
         await nodes[bob.id]!.chats
@@ -288,16 +399,23 @@ void main() {
       await pair();
       final id = await send();
       await pumpUntil(() => delivered(id));
-      final frame = Map<String, dynamic>.from(
-        history.firstWhere((p) => p.frame['kind'] == 'media_start').frame,
+      final index = clearHistory.indexWhere(
+        (p) => p.frame['kind'] == 'media_start',
       );
+      final clear = Map<String, dynamic>.from(clearHistory[index].frame);
       final before = history.length;
-      frame['origin'] = 'forged';
-      await nodes[bob.id]!.handleEnvelope(alice.id, frame);
+      clear['origin'] = 'forged';
+      await nodes[bob.id]!.handleEnvelope(
+        alice.id,
+        await sealFrame(history[index], clear),
+      );
       expect(history.length, before);
-      frame['origin'] = nodes[alice.id]!.deviceId;
-      frame['data'] = {...frame['data'] as Map, 'target': 'another-device'};
-      await nodes[bob.id]!.handleEnvelope(alice.id, frame);
+      clear['origin'] = nodes[alice.id]!.deviceId;
+      clear['data'] = {...clear['data'] as Map, 'target': 'another-device'};
+      await nodes[bob.id]!.handleEnvelope(
+        alice.id,
+        await sealFrame(history[index], clear),
+      );
       expect(history.length, before);
     },
   );

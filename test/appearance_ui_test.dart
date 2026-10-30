@@ -1,3 +1,4 @@
+import 'support/mesh_issuer.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -19,10 +20,14 @@ import 'package:offgrid_sos/features/nearby/nearby_screen.dart';
 import 'package:offgrid_sos/features/profile/profile_screen.dart';
 import 'package:offgrid_sos/features/sos/sos_screen.dart';
 import 'package:offgrid_sos/features/rescue/rescue_screen.dart';
+import 'package:offgrid_sos/features/rescue/rescue_history_screen.dart';
 import 'package:offgrid_sos/models/user.dart';
 import 'package:offgrid_sos/services/nearby_mesh_service.dart';
 import 'package:offgrid_sos/services/location_service.dart';
 import 'package:offgrid_sos/features/chat/nearby_conversation_screen.dart';
+import 'package:offgrid_sos/features/chat/chat_screen.dart';
+import 'package:offgrid_sos/data/models/local_chat_conversation.dart';
+import 'package:offgrid_sos/services/unified_chat_service.dart';
 import 'package:offgrid_sos/widgets/location_actions.dart';
 
 const guest = AppUser(
@@ -269,7 +274,14 @@ void main() {
     testWidgets('Nearby $suffix explains the empty state', (tester) async {
       await tester.runAsync(() => uiController.setMode(mode));
       await pumpScreen(tester, const NearbyScreen(me: guest));
+      expect(find.text('ทดสอบระยะ Nearby'), findsNothing);
+      expect(find.text('เชื่อมต่อใน 3 ขั้นตอน'), findsOneWidget);
       await snapshot(tester, 'nearby_$suffix');
+      await tester.scrollUntilVisible(
+        find.text('ยังไม่มีอุปกรณ์ใกล้เคียง'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text('ยังไม่มีอุปกรณ์ใกล้เคียง'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
@@ -285,6 +297,7 @@ void main() {
         await tester.tap(find.text('เปิด SOS · ขอความช่วยเหลือ'));
         await tester.pumpAndSettle();
         expect(find.text('เปิด SOS หรือไม่?'), findsOneWidget);
+        await snapshot(tester, 'sos_choices_$suffix');
         await tester.tap(find.text('ยกเลิก'));
         await tester.pumpAndSettle();
         expect(await repo.latestActive(guest.id), isNull);
@@ -429,6 +442,174 @@ void main() {
   });
 
   testWidgets(
+    'rescue history retains cancelled cases and their chat entry offline',
+    (tester) async {
+      final db = await newDatabaseFactoryMemory().openDatabase(
+        'rescue-history-ui',
+      );
+      final mesh = NearbyMeshService.withDatabase(
+        LocalDatabase.withDatabase(db),
+      );
+      await tester.runAsync(() => mesh.initializeForUser(guest));
+      await tester.runAsync(
+        () => mesh.chats.saveSos(guest.id, {
+          'id': 'case-cancelled',
+          'kind': 'sos',
+          'origin': 'remote-device',
+          'sender': 'ผู้แจ้งทดสอบ',
+          'at': '2026-10-19T08:00:00Z',
+          'data': {
+            'caseId': 'sos-1',
+            'revision': 2,
+            'active': false,
+            'text': 'เคสทดสอบ',
+            'lat': 13.73,
+            'lng': 100.541,
+          },
+        }),
+      );
+      await pumpScreen(
+        tester,
+        RescueHistoryScreen(me: guest, service: mesh),
+        size: const Size(320, 640),
+        textScale: 1.5,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('ผู้แจ้งหยุด SOS แล้ว'), findsOneWidget);
+      expect(find.text('ผู้แจ้งทดสอบ'), findsOneWidget);
+      expect(find.text('ดูบทสนทนาของเคส'), findsOneWidget);
+      expect(find.byType(LocationActions), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      mesh.dispose();
+      await db.close();
+    },
+  );
+
+  testWidgets('unified inbox shows one paired member across both transports', (
+    tester,
+  ) async {
+    final db = await newDatabaseFactoryMemory().openDatabase(
+      'unified-inbox-ui',
+    );
+    final local = LocalDatabase.withDatabase(db);
+    final mesh = NearbyMeshService.withDatabase(local);
+    final chat = UnifiedChatService(
+      local: local,
+      mesh: mesh,
+      online: () => false,
+    );
+    await tester.runAsync(() async {
+      await mesh.initializeForUser(guest);
+      mesh.connected.add('link');
+      mesh.identities['link'] = NearbyPeer(
+        endpoint: 'link',
+        deviceId: 'peer-device',
+        name: 'เพื่อนคนเดียว',
+        userId: 'peer-account',
+        attestedUntil: DateTime.now().add(const Duration(days: 1)),
+      );
+      await chat.rememberPeers(guest.id);
+      final conv = LocalChatConversation(
+        id: 'room',
+        ownerLocalId: guest.id,
+        peerUserId: 'peer-account',
+        displayName: 'เพื่อนคนเดียว',
+        updatedAt: DateTime.now(),
+      );
+      await local.conversationStore.record('room').put(db, conv.toLocalMap());
+      await mesh.chats.save(
+        guest.id,
+        'peer-device',
+        {
+          'id': 'incoming',
+          'origin': 'peer-device',
+          'sender': 'เพื่อนคนเดียว',
+          'kind': 'direct',
+          'at': DateTime.now().toIso8601String(),
+          'data': {'text': 'ข้อความทั้งหมดอยู่ที่เดียว'},
+        },
+        incoming: true,
+        delivery: 'delivered',
+      );
+    });
+    await pumpScreen(tester, ChatScreen(me: guest, service: chat));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 80)),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('เพื่อนคนเดียว'), findsOneWidget);
+    expect(find.text('แชท Nearby'), findsNothing);
+    await snapshot(tester, 'unified_inbox_v16');
+    await tester.tap(find.text('เพื่อนคนเดียว'));
+    await tester.pumpAndSettle();
+    expect(find.text('ข้อความทั้งหมดอยู่ที่เดียว'), findsOneWidget);
+    await tester.tap(find.byTooltip('แนบรูปหรือวิดีโอ'));
+    await tester.pumpAndSettle();
+    for (final label in [
+      'ถ่ายรูป',
+      'รูปภาพจากเครื่อง',
+      'ตำแหน่งของฉัน',
+      'วิดีโอจากเครื่อง',
+      'ถ่ายวิดีโอ',
+    ]) {
+      expect(find.text(label), findsOneWidget);
+    }
+    await snapshot(tester, 'unified_attachments_v16');
+    await tester.pumpWidget(const SizedBox());
+    chat.stop();
+    mesh.dispose();
+    await db.close();
+  });
+
+  testWidgets('Nearby chat previews and queues a shared GPS point offline', (
+    tester,
+  ) async {
+    final db = await newDatabaseFactoryMemory().openDatabase(
+      'nearby-location-ui',
+    );
+    final mesh = NearbyMeshService.withDatabase(LocalDatabase.withDatabase(db));
+    await tester.runAsync(() => mesh.initializeForUser(guest));
+    await pumpScreen(
+      tester,
+      NearbyConversationScreen(
+        me: guest,
+        peerId: 'other-device',
+        name: 'เพื่อน',
+        service: mesh,
+        locationService: _TestChatLocation(),
+      ),
+      size: const Size(320, 640),
+      textScale: 1.5,
+    );
+    await tester.tap(find.byTooltip('แนบรูปหรือวิดีโอ'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('ตำแหน่งของฉัน'));
+    await tester.tap(find.text('ตำแหน่งของฉัน'));
+    await tester.pumpAndSettle();
+    expect(find.text('ส่งตำแหน่งของฉัน'), findsOneWidget);
+    expect(find.textContaining('อาจไม่ใช่ตำแหน่งปัจจุบัน'), findsOneWidget);
+    await tester.tap(find.text('ส่งตำแหน่ง'));
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+    });
+    await tester.pumpAndSettle();
+    expect(find.text('ตำแหน่งที่แชร์'), findsOneWidget);
+    expect(find.text('13.730000, 100.541000'), findsOneWidget);
+    expect(find.byType(LocationActions), findsOneWidget);
+    final rows = await tester.runAsync(
+      () => mesh.chats.pending(guest.id, 'other-device'),
+    );
+    expect(rows, hasLength(1));
+    expect((rows!.single['data'] as Map)['type'], 'location');
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    mesh.dispose();
+    await db.close();
+  });
+
+  testWidgets(
     'Nearby chat retains history and queues messages when disconnected',
     (tester) async {
       final db = await newDatabaseFactoryMemory().openDatabase(
@@ -469,6 +650,7 @@ void main() {
       expect(find.text('ถ่ายรูป'), findsOneWidget);
       expect(find.text('รูปภาพจากเครื่อง'), findsOneWidget);
       expect(find.text('วิดีโอจากเครื่อง'), findsOneWidget);
+      expect(find.text('ถ่ายวิดีโอ'), findsOneWidget);
       Navigator.of(tester.element(find.text('ถ่ายรูป'))).pop();
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), 'ฉันอยู่ตรงนี้');
@@ -522,7 +704,7 @@ void main() {
     await tester.pumpWidget(const MaterialApp(home: SizedBox()));
     final imageProvider = ResizeImage(
       FileImage(File('assets/branding/offgrid-icon.png').absolute),
-      width: 720,
+      width: 1440,
     );
     await tester.runAsync(
       () => precacheImage(
@@ -545,7 +727,8 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 80));
     });
     await tester.pumpAndSettle();
-    expect(find.text('ภาพในเครื่อง.png'), findsOneWidget);
+    expect(find.text('รูปภาพ'), findsOneWidget);
+    expect(find.byTooltip('ภาพในเครื่อง.png'), findsOneWidget);
     expect(
       tester.widget<RawImage>(find.byType(RawImage).first).image,
       isNotNull,
@@ -561,6 +744,7 @@ void main() {
     await tester.tapAt(visiblePhoto.center);
     await tester.pumpAndSettle();
     expect(find.byType(InteractiveViewer), findsOneWidget);
+    expect(find.text('รูปภาพ'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
     mesh.dispose();
     await db.close();
@@ -583,8 +767,12 @@ void main() {
         late NearbyMeshService mesh;
         await tester.runAsync(() async {
           await uiController.setMode(dark ? ThemeMode.dark : ThemeMode.light);
-          mesh = NearbyMeshService.withDatabase(LocalDatabase.withDatabase(db));
+          mesh = NearbyMeshService.withDatabase(
+            LocalDatabase.withDatabase(db),
+            verifyAttestation: verifyTestAttestation,
+          );
           await mesh.initializeForUser(rescuer);
+          await grantTestAttestation(mesh, rescuer);
         });
         mesh.running =
             true; // Stub radio state; no native discovery in a widget test.
@@ -666,10 +854,12 @@ void main() {
         );
         await mesh.initializeForUser(guest);
         mesh.connected.add('endpoint');
-        mesh.identities['endpoint'] = const NearbyPeer(
+        mesh.identities['endpoint'] = NearbyPeer(
           endpoint: 'endpoint',
           deviceId: 'rescue-device',
           name: 'Rescue Team',
+          verifiedRole: 'rescuer',
+          attestedUntil: DateTime.now().add(const Duration(days: 1)),
         );
         mesh.inbox.add(
           MeshMessage({
@@ -756,4 +946,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
+}
+
+class _TestChatLocation extends LocationService {
+  @override
+  Future<SavedLocation?> getLatestLocation() async => SavedLocation(
+    latitude: 13.73,
+    longitude: 100.541,
+    recordedAt: DateTime.utc(2026, 10, 19, 8),
+    isLastKnown: true,
+  );
 }

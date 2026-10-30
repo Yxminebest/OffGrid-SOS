@@ -4,7 +4,20 @@ import '../local/local_database.dart';
 import '../models/local_chat_conversation.dart';
 
 class ConversationRepository {
-  final LocalDatabase _local = LocalDatabase.instance;
+  ConversationRepository({LocalDatabase? local})
+    : _local = local ?? LocalDatabase.instance;
+  final LocalDatabase _local;
+
+  Future<List<LocalChatConversation>> listForUser(String ownerLocalId) async {
+    final db = await _local.database;
+    final rows = await _local.conversationStore.find(
+      db,
+      finder: Finder(filter: Filter.equals('owner_local_id', ownerLocalId)),
+    );
+    return rows
+        .map((row) => LocalChatConversation.fromLocalMap(row.value))
+        .toList();
+  }
 
   Stream<List<LocalChatConversation>> watchForUser(String ownerLocalId) async* {
     final db = await _local.database;
