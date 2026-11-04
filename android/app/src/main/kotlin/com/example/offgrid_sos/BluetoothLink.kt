@@ -20,22 +20,57 @@ class BluetoothLink(context: Context, private val channel: MethodChannel) {
     private val pool = Executors.newCachedThreadPool()
     private val main = Handler(Looper.getMainLooper())
     private val sockets = ConcurrentHashMap<String, BluetoothSocket>()
+    private val incomingSockets = ConcurrentHashMap<String, Boolean>()
     @Volatile private var server: BluetoothServerSocket? = null
     @Volatile private var generation = 0
+
+    /**
+     * Both phones may discover the same bonded peer at the same time.  If both
+     * open an outgoing RFCOMM socket, each side can keep the incoming socket
+     * while the other side keeps the outgoing one; closing the duplicate then
+     * tears down both links.  Use the stable Bluetooth addresses as a tie
+     * breaker so exactly one side initiates the connection.
+     */
+    private fun shouldKeepIncoming(remoteAddress: String, remoteName: String?): Boolean {
+        return try {
+            val localName = adapter?.name.orEmpty()
+            val peerName = remoteName.orEmpty()
+            // Adapter names are visible to both sides and give us a stable
+            // tie-breaker even on Android versions that hide the local MAC.
+            if (localName.isNotEmpty() && peerName.isNotEmpty() && localName != peerName) {
+                return localName > peerName
+            }
+            val local = adapter?.address?.replace(":", "")?.uppercase() ?: return true
+            val remote = remoteAddress.replace(":", "").uppercase()
+            if (local == "020000000000" || remote.isEmpty()) true
+            else {
+                // Lexicographically larger address is the accepting side.
+                local > remote
+            }
+        } catch (_: SecurityException) {
+            // If Android withholds the adapter address, keep the link rather
+            // than killing the accept loop; the Dart retry logic still applies.
+            true
+        }
+    }
 
     private fun event(data: Map<String, Any>) = main.post { channel.invokeMethod("event", data) }
     fun start(): Boolean {
         val radio = adapter ?: return false
         if (!radio.isEnabled) return false
         if (server != null) return true
-        val listening = radio.listenUsingRfcommWithServiceRecord("Offgrid SOS", uuid)
+        val listening = radio.listenUsingRfcommWithServiceRecord("SOSBROO", uuid)
         server = listening
         val epoch = generation
         pool.execute {
             try {
                 while (server === listening && generation == epoch) {
                     val socket = listening.accept()
-                    if (generation == epoch) attach(socket, epoch) else socket.close()
+                    if (generation == epoch) {
+                        attach(socket, epoch, incoming = true)
+                    } else {
+                        socket.close()
+                    }
                 }
             } catch (_: Exception) { /* stop() closes accept() intentionally. */ }
             finally { if (server === listening) server = null }
@@ -58,7 +93,7 @@ class BluetoothLink(context: Context, private val channel: MethodChannel) {
                 radio.cancelDiscovery()
                 socket.connect()
                 check(epoch == generation) { "หยุดการเชื่อมต่อแล้ว" }
-                attach(socket, epoch)
+                attach(socket, epoch, incoming = false)
                 main.post { result.success(true) }
             } catch (e: Exception) {
                 try { socket?.close() } catch (_: Exception) {}
@@ -66,10 +101,23 @@ class BluetoothLink(context: Context, private val channel: MethodChannel) {
             }
         }
     }
-    private fun attach(socket: BluetoothSocket, epoch: Int) {
+    @Synchronized
+    private fun attach(socket: BluetoothSocket, epoch: Int, incoming: Boolean) {
         val id = "bt:${socket.remoteDevice.address}"
-        if (sockets.putIfAbsent(id, socket) != null) { socket.close(); return }
-        event(mapOf("kind" to "connected", "id" to id, "name" to (socket.remoteDevice.name ?: "Bluetooth")))
+        if (generation != epoch) { socket.close(); return }
+        val old = sockets[id]
+        if (old != null) {
+            // Elect a direction only when there is a duplicate. Rejecting all
+            // incoming links on one side prevented a single manual connection.
+            val preferredIncoming = shouldKeepIncoming(socket.remoteDevice.address, socket.remoteDevice.name)
+            if (incomingSockets[id] == incoming || incoming != preferredIncoming) {
+                socket.close(); return
+            }
+        }
+        sockets[id] = socket
+        incomingSockets[id] = incoming
+        try { old?.close() } catch (_: Exception) {}
+        if (old == null) event(mapOf("kind" to "connected", "id" to id, "name" to (socket.remoteDevice.name ?: "Bluetooth")))
         pool.execute {
             try {
                 val frame = ByteArrayOutputStream()

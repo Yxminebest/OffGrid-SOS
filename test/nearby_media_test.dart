@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:offgrid_sos/services/unified_chat_service.dart';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
@@ -428,5 +429,192 @@ void main() {
     await handle.close();
     await expectLater(send(), throwsStateError);
     expect(await nodes[alice.id]!.chats.watchThreads(alice.id).first, isEmpty);
+  });
+  test(
+    'image and video captions edit offline without replacing their received files',
+    () async {
+      await pair();
+      final a = UnifiedChatService(
+        local: databases[alice.id],
+        mesh: nodes[alice.id],
+        online: () => false,
+      );
+      final b = UnifiedChatService(
+        local: databases[bob.id],
+        mesh: nodes[bob.id],
+        online: () => false,
+      );
+      final contact = ChatContact(name: 'B', device: nodes[bob.id]!.deviceId);
+      for (final type in ['image', 'video']) {
+        final id = await send(type: type);
+        await pumpUntil(() => delivered(id));
+        final before = (await b.inbox(
+          bob.id,
+        )).single.messages.singleWhere((m) => m.id == id);
+        await a.changeMessage(alice, contact, id, text: 'new $type caption');
+        await pumpUntil(
+          () async => (await b.inbox(
+            bob.id,
+          )).single.messages.singleWhere((m) => m.id == id).edited,
+        );
+        final after = (await b.inbox(
+          bob.id,
+        )).single.messages.singleWhere((m) => m.id == id);
+        expect(after.text, 'new $type caption');
+        expect(after.type, type);
+        expect(after.path, before.path);
+        expect(await File(after.path!).readAsBytes(), orderedEquals(content));
+      }
+    },
+  );
+  test(
+    'reply edit and retract reach the other phone through encrypted offline radio',
+    () async {
+      await pair();
+      final a = UnifiedChatService(
+        local: databases[alice.id],
+        mesh: nodes[alice.id],
+        online: () => false,
+      );
+      final b = UnifiedChatService(
+        local: databases[bob.id],
+        mesh: nodes[bob.id],
+        online: () => false,
+      );
+      final toB = ChatContact(name: 'B', device: nodes[bob.id]!.deviceId);
+      final toA = ChatContact(name: 'A', device: nodes[alice.id]!.deviceId);
+      await a.send(alice, toB, text: 'original', messageId: 'editable-radio');
+      await pumpUntil(
+        () async =>
+            (await b.inbox(bob.id)).firstOrNull?.messages.firstOrNull?.text ==
+            'original',
+      );
+      await a.changeMessage(alice, toB, 'editable-radio', text: 'edited');
+      await pumpUntil(
+        () async =>
+            (await b.inbox(bob.id)).single.messages.single.text == 'edited',
+      );
+      await b.send(bob, toA, text: 'answer', replyToId: 'editable-radio');
+      await pumpUntil(
+        () async => (await a.inbox(alice.id)).single.messages.length == 2,
+      );
+      expect(
+        (await a.inbox(alice.id)).single.messages.last.replyToId,
+        'editable-radio',
+      );
+      await expectLater(
+        b.changeMessage(bob, toA, 'editable-radio', text: 'forged'),
+        throwsStateError,
+      );
+      await a.changeMessage(alice, toB, 'editable-radio', retract: true);
+      await pumpUntil(
+        () async => (await b.inbox(bob.id)).single.messages.first.retracted,
+      );
+      expect((await b.inbox(bob.id)).single.messages, hasLength(2));
+      await expectLater(
+        b.deleteMessage(bob, toA, 'editable-radio'),
+        throwsStateError,
+      );
+      await a.deleteMessage(alice, toB, 'editable-radio');
+      await pumpUntil(
+        () async => (await b.inbox(bob.id)).single.messages.length == 1,
+      );
+      expect((await a.inbox(alice.id)).single.messages, hasLength(1));
+      expect((await b.inbox(bob.id)).single.messages.single.text, 'answer');
+      expect(history.where((p) => p.frame['kind'] == 'routed'), isNotEmpty);
+    },
+  );
+  test(
+    'cancel active media stops chunks and does not report delivery',
+    () async {
+      await pair();
+      final id = await send(type: 'video');
+      await pumpUntil(
+        () async => (nodes[alice.id]!.media.progress[id]?.bytes ?? 0) > 0,
+      );
+      nodes[alice.id]!.media.cancelMessage(id);
+      await pumpUntil(() async => queue.isEmpty);
+      expect(nodes[alice.id]!.media.progress.containsKey(id), isFalse);
+      expect(await delivered(id), isFalse);
+    },
+  );
+  test(
+    'four chunks are dispatched in order before waiting for chunk ACKs',
+    () async {
+      await pair();
+      final id = await send(type: 'video');
+      final deadline = DateTime.now().add(const Duration(seconds: 3));
+      // Deliver only the media_start handshake, then withhold chunk ACKs.
+      while (!clearHistory.any((p) => p.frame['kind'] == 'media_chunk') &&
+          DateTime.now().isBefore(deadline)) {
+        if (queue.isNotEmpty) {
+          final packet = queue.removeAt(0);
+          await nodes[packet.to]!.handleEnvelope(packet.from, packet.frame);
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 2));
+      }
+      while (clearHistory
+                  .where((p) => p.frame['kind'] == 'media_chunk')
+                  .length <
+              4 &&
+          DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 2));
+      }
+      final chunks = clearHistory
+          .where((p) => p.frame['kind'] == 'media_chunk')
+          .toList();
+      expect(chunks, hasLength(4));
+      expect(
+        chunks.map((p) => (p.frame['data'] as Map)['offset']),
+        List.generate(4, (i) => i * NearbyMediaFiles.chunkBytes),
+      );
+      await pumpUntil(() => delivered(id));
+      final received = await nodes[bob.id]!.chats.find(bob.id, id);
+      expect(
+        await File(received!['localPath'] as String).readAsBytes(),
+        content,
+      );
+    },
+  );
+  test('reversed chunk arrival is buffered until written then ACKed', () async {
+    await pair();
+    final id = await send(type: 'video');
+    final deadline = DateTime.now().add(const Duration(seconds: 3));
+    // Deliver only the media_start handshake, then withhold chunk ACKs.
+    while (!clearHistory.any((p) => p.frame['kind'] == 'media_chunk') &&
+        DateTime.now().isBefore(deadline)) {
+      if (queue.isNotEmpty) {
+        final packet = queue.removeAt(0);
+        await nodes[packet.to]!.handleEnvelope(packet.from, packet.frame);
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+    }
+    while (clearHistory.where((p) => p.frame['kind'] == 'media_chunk').length <
+            4 &&
+        DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+    }
+    final chunks = clearHistory
+        .where((p) => p.frame['kind'] == 'media_chunk')
+        .toList();
+    expect(chunks, hasLength(4));
+    expect(
+      chunks.map((p) => (p.frame['data'] as Map)['offset']),
+      List.generate(4, (i) => i * NearbyMediaFiles.chunkBytes),
+    );
+    final packets = <Packet>[];
+    for (final packet in queue.toList()) {
+      if ((await openFrame(packet))['kind'] == 'media_chunk') {
+        packets.add(packet);
+        queue.remove(packet);
+      }
+    }
+    expect(packets, hasLength(4));
+    for (final packet in packets.reversed) {
+      await nodes[packet.to]!.handleEnvelope(packet.from, packet.frame);
+    }
+    await pumpUntil(() => delivered(id));
+    final received = await nodes[bob.id]!.chats.find(bob.id, id);
+    expect(await File(received!['localPath'] as String).readAsBytes(), content);
   });
 }

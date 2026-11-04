@@ -147,7 +147,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
           children: [
             const Text(
-              'สร้างบัญชี offgrid-sos',
+              'สร้างบัญชี SOSBROO',
               style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 6),

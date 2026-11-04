@@ -80,65 +80,114 @@ class _LocalVideo extends StatefulWidget {
   State<_LocalVideo> createState() => _LocalVideoState();
 }
 
-class _LocalVideoState extends State<_LocalVideo> {
+class _LocalVideoState extends State<_LocalVideo> with WidgetsBindingObserver {
   late final player = VideoPlayerController.file(File(widget.path));
-  bool ready = false, failed = false;
+  bool failed = false;
+
   @override
   void initState() {
     super.initState();
-    player.addListener(_changed);
-    player
-        .initialize()
-        .then((_) {
-          if (!mounted) return;
-          setState(() => ready = true);
-        })
-        .catchError((Object _) {
-          if (mounted) setState(() => failed = true);
-        });
+    WidgetsBinding.instance.addObserver(this);
+    _initialize();
   }
 
-  void _changed() {
-    if (mounted && ready) setState(() {});
+  Future<void> _initialize() async {
+    try {
+      await player.initialize().timeout(const Duration(seconds: 20));
+      if (!mounted) return;
+      await player.play();
+    } catch (_) {
+      if (mounted) setState(() => failed = true);
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) player.pause();
   }
 
   @override
   void dispose() {
-    player.removeListener(_changed);
+    WidgetsBinding.instance.removeObserver(this);
     player.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(widget.name)),
-    body: failed || player.value.hasError
-        ? const Center(child: Text('เปิดวิดีโอไม่ได้ รูปแบบไฟล์อาจไม่รองรับ'))
-        : !ready
-        ? const Center(child: CircularProgressIndicator())
-        : Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                AspectRatio(
-                  aspectRatio: player.value.aspectRatio,
-                  child: VideoPlayer(player),
+    appBar: AppBar(title: const Text('วิดีโอ')),
+    body: SafeArea(
+      child: ValueListenableBuilder<VideoPlayerValue>(
+        valueListenable: player,
+        builder: (context, value, _) {
+          if (failed || value.hasError) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  'เล่นวิดีโอไม่ได้ ไฟล์อาจไม่สมบูรณ์หรือเครื่องไม่รองรับรูปแบบนี้',
                 ),
-                VideoProgressIndicator(player, allowScrubbing: true),
-                IconButton(
-                  tooltip: player.value.isPlaying
-                      ? 'หยุดชั่วคราว'
-                      : 'เล่นวิดีโอ',
-                  onPressed: () =>
-                      player.value.isPlaying ? player.pause() : player.play(),
-                  icon: Icon(
-                    player.value.isPlaying
-                        ? Icons.pause_rounded
-                        : Icons.play_arrow_rounded,
+              ),
+            );
+          }
+          if (!value.isInitialized) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          return Column(
+            children: [
+              Expanded(
+                child: Center(
+                  child: AspectRatio(
+                    aspectRatio: value.aspectRatio,
+                    child: VideoPlayer(player),
                   ),
                 ),
-              ],
-            ),
-          ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: VideoProgressIndicator(player, allowScrubbing: true),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(
+                    tooltip: value.isPlaying ? 'หยุดชั่วคราว' : 'เล่นวิดีโอ',
+                    iconSize: 36,
+                    onPressed: () async {
+                      if (value.isPlaying) {
+                        await player.pause();
+                      } else {
+                        if (value.position >= value.duration) {
+                          await player.seekTo(Duration.zero);
+                        }
+                        await player.play();
+                      }
+                    },
+                    icon: Icon(
+                      value.isPlaying
+                          ? Icons.pause_rounded
+                          : Icons.play_arrow_rounded,
+                    ),
+                  ),
+                  Text('${_time(value.position)} / ${_time(value.duration)}'),
+                  if (value.isBuffering)
+                    const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
+    ),
   );
+
+  String _time(Duration value) =>
+      '${value.inMinutes}:${(value.inSeconds % 60).toString().padLeft(2, '0')}';
 }

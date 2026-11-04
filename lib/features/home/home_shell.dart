@@ -7,10 +7,12 @@ import '../../data/models/local_sos_record.dart';
 import '../../data/repositories/sos_repository.dart';
 import '../../widgets/app_card.dart';
 import '../../widgets/brand_mark.dart';
-import '../../widgets/location_map_screen.dart';
+import '../../widgets/emergency_home_panel.dart';
 import '../../data/models/local_chat_conversation.dart';
 import '../../models/user.dart';
 import '../../services/chat_service.dart';
+import '../../services/location_service.dart';
+import '../../widgets/nearby_people_panel.dart';
 import '../../services/unified_chat_service.dart';
 import '../../services/home_return_policy.dart';
 import '../../services/nearby_mesh_service.dart';
@@ -44,35 +46,41 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   late AppUser _me;
   String? _lastRescueNotice;
   int _index = 0;
-  int _unreadTotal = 0;
+  late final _sosRecords = SosRepository().watchForUser(widget.me.id);
+  final _visitedTabs = <int>{0};
   int _nearbyUnread = 0;
   int get _combinedUnread => _nearbyUnread;
   StreamSubscription<List<ChatInboxEntry>>? _nearbyInboxSubscription;
   bool _inboxPrimed = false;
   Map<String, int> _unreadByConversation = <String, int>{};
   StreamSubscription<List<LocalChatConversation>>? _inboxSubscription;
+  bool _notificationReady = false, _checkingNotification = false;
+  bool _notificationAgain = false, _returningHome = false;
+  Map<String, String>? _pendingNotificationTap;
 
   @override
   void initState() {
     super.initState();
     _me = widget.me;
+    unawaited(const LocationService().prepare());
     WidgetsBinding.instance.addObserver(this);
+    AppNotifications.instance.listenForTaps();
+    AppNotifications.instance.taps.addListener(_scheduleNotificationTap);
     RescueStatusService.instance.addListener(_onRescueStatus);
     unawaited(_startServices());
     _nearbyInboxSubscription = UnifiedChatService.instance
         .watchInbox(_me.id)
         .listen((threads) {
-          if (mounted) {
-            setState(
-              () => _nearbyUnread = threads.fold(
-                0,
-                (sum, thread) => sum + thread.unread,
-              ),
-            );
+          final unread = threads.fold<int>(
+            0,
+            (sum, thread) => sum + thread.unread,
+          );
+          if (mounted && unread != _nearbyUnread) {
+            setState(() => _nearbyUnread = unread);
           }
         }, onError: (_) {});
 
-    if (_me.isMember) {
+    if (_me.isMember && !AppNotifications.instance.supported) {
       _inboxSubscription = ChatService.instance
           .watchInbox(_me.id)
           .listen(_handleInbox, onError: (_) {});
@@ -84,9 +92,14 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       await NearbyMeshService.instance.initializeForUser(_me);
       if (!mounted) return;
       UnifiedChatService.instance.start(_me);
+      _notificationReady = true;
+      _scheduleNotificationTap();
       // Radio and local camera recovery must never wait for cloud services.
       unawaited(
-        NearbyMeshService.instance.resumePreferred(_me).catchError((_) {}),
+        NearbyMeshService.instance
+            .resumePreferred(_me, startIfUnset: true)
+            .then((_) => const LocationService().prepare())
+            .catchError((_) {}),
       );
       NetworkService.instance.start();
       unawaited(AppNotifications.instance.startBackground().catchError((_) {}));
@@ -158,20 +171,137 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     }
   }
 
+  void _scheduleNotificationTap() {
+    if (!mounted ||
+        !_notificationReady ||
+        _returningHome ||
+        WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_returningHome) unawaited(_openNotificationTap());
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  Future<void> _openNotificationTap() async {
+    if (_checkingNotification) {
+      _notificationAgain = true;
+      return;
+    }
+    _checkingNotification = true;
+    try {
+      final notifications = AppNotifications.instance;
+      final chatTap = _pendingNotificationTap?.containsKey('thread') == true
+          ? _pendingNotificationTap
+          : await notifications.takeChatTap();
+      final sosTap = chatTap == null
+          ? (_pendingNotificationTap ?? await notifications.takeSosTap())
+          : null;
+      final tap = chatTap ?? sosTap;
+      if (!mounted || tap == null || tap['owner'] != _me.id) {
+        _pendingNotificationTap = null;
+        return;
+      }
+      _pendingNotificationTap = tap;
+      if (_returningHome ||
+          WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+        return;
+      }
+      final mesh = NearbyMeshService.instance;
+      if (mesh.ownerId != _me.id) {
+        _pendingNotificationTap = null;
+        return;
+      }
+      ChatContact? contact;
+      final thread = chatTap?['thread'] ?? sosTap?['device'];
+      if (thread == null ||
+          thread.isEmpty ||
+          notifications.activeThread == thread ||
+          notifications.activeThreadAliases.contains(thread)) {
+        _pendingNotificationTap = null;
+        return;
+      }
+      if (chatTap != null) {
+        contact = await UnifiedChatService.instance.notificationContact(
+          _me.id,
+          thread,
+          transport: chatTap['transport']!,
+        );
+      } else if (mesh.inbox.any(
+        (m) => m.kind == 'sos' && m.data['origin'] == thread,
+      )) {
+        contact = ChatContact(name: mesh.chatPeerName(thread), device: thread);
+      }
+      if (!mounted || tap['owner'] != _me.id || mesh.ownerId != _me.id) return;
+      if (_returningHome ||
+          WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+        return;
+      }
+      _pendingNotificationTap = null;
+      Navigator.of(context).popUntil((route) => route.isFirst);
+      setState(() => _index = 2);
+      if (contact != null) {
+        final target = contact;
+        unawaited(
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) =>
+                  UnifiedConversationScreen(me: _me, contact: target),
+            ),
+          ),
+        );
+      }
+    } catch (_) {
+      _pendingNotificationTap = null;
+      // A missing/deleted contact must not prevent the app from opening.
+    } finally {
+      _checkingNotification = false;
+      if (_notificationAgain) {
+        _notificationAgain = false;
+        _scheduleNotificationTap();
+      }
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (_returnPolicy.update(state, external: ExternalActivity.active) &&
         mounted) {
       setState(() => _index = 0);
+      _returningHome = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
+        if (!mounted) return;
+        Navigator.of(context).popUntil((route) => route.isFirst);
+        AppNotifications.instance.activeRoomToken = null;
+        AppNotifications.instance.activeThread = null;
+        AppNotifications.instance.activeThreadAliases.clear();
+        _returningHome = false;
+        _scheduleNotificationTap();
       });
+    }
+    if (state != AppLifecycleState.resumed) {
+      unawaited(LocationService.stopPreparing());
+    }
+    if (state == AppLifecycleState.resumed && mounted) {
+      unawaited(const LocationService().prepare());
+      unawaited(NearbyMeshService.instance.resumeConnections(_me));
+      unawaited(
+        NetworkService.instance.hasConnection.then((_) {
+          if (!mounted) return;
+          unawaited(UnifiedChatService.instance.flush());
+          CloudInboxService.instance.wake();
+        }),
+      );
+      _scheduleNotificationTap();
     }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    AppNotifications.instance.taps.removeListener(_scheduleNotificationTap);
+    unawaited(LocationService.stopPreparing());
     RescueStatusService.instance.removeListener(_onRescueStatus);
     RescueStatusService.instance.stop();
     UnifiedChatService.instance.stop();
@@ -183,11 +313,6 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   }
 
   void _handleInbox(List<LocalChatConversation> conversations) {
-    final nextUnread = conversations.fold<int>(
-      0,
-      (sum, item) => sum + item.unreadCount,
-    );
-
     LocalChatConversation? newestUnread;
     if (_inboxPrimed) {
       for (final conversation in conversations) {
@@ -213,12 +338,6 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         conversation.id: conversation.unreadCount,
     };
     _inboxPrimed = true;
-
-    if (mounted && nextUnread != _unreadTotal) {
-      setState(() => _unreadTotal = nextUnread);
-    } else {
-      _unreadTotal = nextUnread;
-    }
 
     if (newestUnread != null &&
         _index != 2 &&
@@ -349,6 +468,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    _visitedTabs.add(_index);
     final pages = <Widget>[
       HomeDashboard(
         me: _me,
@@ -357,10 +477,28 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         onNearby: () => setState(() => _index = 1),
         onChat: () => setState(() => _index = 2),
         unreadCount: _combinedUnread,
+        sosRecords: _sosRecords,
       ),
-      NearbyScreen(me: _me),
-      ChatScreen(me: _me),
-      ProfileScreen(me: _me, onLogout: widget.onLogout),
+      if (_visitedTabs.contains(1))
+        NearbyScreen(me: _me)
+      else
+        const SizedBox.shrink(),
+      if (_visitedTabs.contains(2))
+        ChatScreen(me: _me)
+      else
+        const SizedBox.shrink(),
+      if (_visitedTabs.contains(3))
+        ProfileScreen(
+          me: _me,
+          onLogout: widget.onLogout,
+          onUpdated: (updated) {
+            if (!mounted || updated.id != _me.id) return;
+            setState(() => _me = updated);
+            unawaited(NearbyMeshService.instance.initializeForUser(updated));
+          },
+        )
+      else
+        const SizedBox.shrink(),
     ];
 
     return Scaffold(
@@ -397,7 +535,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   }
 }
 
-class HomeDashboard extends StatelessWidget {
+class HomeDashboard extends StatefulWidget {
   const HomeDashboard({
     super.key,
     required this.me,
@@ -407,342 +545,315 @@ class HomeDashboard extends StatelessWidget {
     required this.onChat,
     required this.unreadCount,
     this.sosRecords,
+    this.service,
   });
   final AppUser me;
   final VoidCallback onSos, onRescue, onNearby, onChat;
   final int unreadCount;
   final Stream<List<LocalSosRecord>>? sosRecords;
+  final NearbyMeshService? service;
+
+  @override
+  State<HomeDashboard> createState() => _HomeDashboardState();
+}
+
+class _HomeDashboardState extends State<HomeDashboard> {
+  NearbyMeshService get _mesh => widget.service ?? NearbyMeshService.instance;
+  AppUser get me => widget.me;
+  VoidCallback get onSos => widget.onSos;
+  VoidCallback get onRescue => widget.onRescue;
+  VoidCallback get onNearby => widget.onNearby;
+  VoidCallback get onChat => widget.onChat;
+  int get unreadCount => widget.unreadCount;
+  late Stream<List<LocalSosRecord>> _records;
+  String? _ownSignature;
+
+  @override
+  void initState() {
+    super.initState();
+    _records = widget.sosRecords ?? SosRepository().watchForUser(me.id);
+    _mesh.addListener(_ownSosChanged);
+  }
+
+  void _ownSosChanged() {
+    final mesh = _mesh;
+    final record = mesh.ownerId == me.id ? mesh.ownSosRecord : null;
+    final signature = '${record?.id}:${record?.revision}:${record?.isActive}';
+    if (signature == _ownSignature) return;
+    _ownSignature = signature;
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void didUpdateWidget(covariant HomeDashboard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.service != widget.service) {
+      (oldWidget.service ?? NearbyMeshService.instance).removeListener(
+        _ownSosChanged,
+      );
+      _mesh.addListener(_ownSosChanged);
+      _ownSignature = null;
+    }
+    if (oldWidget.me.id != me.id ||
+        !identical(oldWidget.sosRecords, widget.sosRecords)) {
+      _records = widget.sosRecords ?? SosRepository().watchForUser(me.id);
+    }
+  }
+
+  @override
+  void dispose() {
+    _mesh.removeListener(_ownSosChanged);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) => StreamBuilder<List<LocalSosRecord>>(
-    stream: sosRecords ?? SosRepository().watchForUser(me.id),
-    builder: (context, snapshot) => SafeArea(
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 620),
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(22, 16, 22, 28),
-            children: [
-              ListenableBuilder(
-                listenable: NearbyMeshService.instance,
-                builder: (context, _) {
-                  final mesh = NearbyMeshService.instance;
-                  final sosActive = (snapshot.data ?? []).any(
-                    (r) => r.isActive,
-                  );
-                  final rescueActive =
-                      mesh.ownerId == me.id &&
-                      mesh.rescueActive &&
-                      me.isVerifiedRescuer;
-                  return Row(
-                    children: [
-                      const Expanded(child: BrandLockup()),
-                      if (sosActive || rescueActive) ...[
-                        const SizedBox(width: 8),
-                        IconButton.filled(
-                          tooltip: sosActive
-                              ? 'SOS กำลังทำงาน · ดูสถานะ'
-                              : 'โหมดกู้ภัยกำลังทำงาน · ดูสถานะ',
-                          onPressed: sosActive ? onSos : onRescue,
-                          style: IconButton.styleFrom(
-                            backgroundColor: sosActive
-                                ? AppColors.sos
-                                : AppColors.rescue,
-                            foregroundColor: Colors.white,
-                            minimumSize: const Size(48, 48),
-                          ),
-                          icon: Icon(
-                            sosActive
-                                ? Icons.sos_rounded
-                                : Icons.health_and_safety_rounded,
-                          ),
-                        ),
-                      ],
-                    ],
-                  );
-                },
-              ),
-              const SizedBox(height: 28),
-              Text(
-                'สวัสดี, ${me.firstName}',
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'ขอความช่วยเหลือและติดต่อคนใกล้ตัว แม้ไม่มีเน็ต',
-                style: TextStyle(color: context.colors.muted, fontSize: 14),
-              ),
-              const SizedBox(height: 22),
-              _SosHero(
-                active: (snapshot.data ?? []).any((r) => r.isActive),
-                onTap: onSos,
-              ),
-              const SizedBox(height: 16),
-              _SyncOverview(isMember: me.isMember),
-              const SizedBox(height: 26),
-              Text(
-                'เชื่อมต่อและช่วยเหลือ',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 12),
-              AppCard(
-                padding: EdgeInsets.zero,
-                child: Column(
-                  children: [
-                    ListenableBuilder(
-                      listenable: NearbyMeshService.instance,
-                      builder: (context, _) {
-                        final mesh = NearbyMeshService.instance;
-                        return _ActionRow(
-                          icon: Icons.radar_rounded,
-                          title: 'คนใกล้เคียง',
-                          detail: mesh.connected.isNotEmpty
-                              ? 'เชื่อมต่อ ${mesh.connected.length} เครื่อง'
-                              : mesh.running
-                              ? 'กำลังค้นหาอุปกรณ์'
-                              : 'เชื่อมต่อผ่าน Bluetooth และ Wi-Fi',
-                          color: context.colors.info,
-                          onTap: onNearby,
-                        );
-                      },
-                    ),
-                    const Divider(height: 1, indent: 74, endIndent: 20),
-                    _ActionRow(
-                      icon: Icons.chat_bubble_outline_rounded,
-                      title: 'ข้อความของคุณ',
-                      detail: unreadCount > 0
-                          ? 'มี $unreadCount ข้อความที่ยังไม่ได้อ่าน'
-                          : me.isMember
-                          ? 'ข้อความ รูป วิดีโอ และตำแหน่ง'
-                          : 'แชทผ่าน Nearby ได้โดยไม่ต้องเข้าสู่ระบบ',
-                      color: context.colors.info,
-                      onTap: onChat,
-                      count: unreadCount,
-                    ),
-                    const Divider(height: 1, indent: 74, endIndent: 20),
-                    _ActionRow(
-                      icon: Icons.health_and_safety_outlined,
-                      title: 'หน่วยกู้ภัย',
-                      detail: me.isVerifiedRescuer
-                          ? 'เปิดโหมดปฏิบัติหน้าที่'
-                          : 'สำหรับหน่วยกู้ภัยที่ยืนยันตัวตนแล้ว',
-                      color: context.colors.rescue,
-                      onTap: onRescue,
-                    ),
-                    const Divider(height: 1, indent: 74, endIndent: 20),
-                    _ActionRow(
-                      icon: Icons.map_outlined,
-                      title: 'แผนที่ปทุมธานี',
-                      detail: 'ถนนจริงในเครื่อง · ใช้ GPS ได้แม้ออฟไลน์',
-                      color: context.colors.info,
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const LocationMapScreen.overview(),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    Icons.explore_outlined,
-                    color: context.colors.info,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'ก่อนออกเดินทาง เปิดตำแหน่งและจับคู่ Nearby กับคนที่ไปด้วยกัน',
-                      style: TextStyle(
-                        color: context.colors.muted,
-                        fontSize: 12,
-                        height: 1.6,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
-class _SosHero extends StatelessWidget {
-  const _SosHero({required this.active, required this.onTap});
-  final bool active;
-  final VoidCallback onTap;
-  @override
-  Widget build(BuildContext context) => Semantics(
-    button: true,
-    label: active ? 'ดู SOS ที่กำลังทำงาน' : 'เปิดหน้าขอความช่วยเหลือฉุกเฉิน',
-    child: Material(
-      color: const Color(0xFF352D19),
-      borderRadius: BorderRadius.circular(26),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(22),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+    stream: _records,
+    builder: (context, snapshot) {
+      final mesh = _mesh;
+      final cached = mesh.ownerId == me.id ? mesh.ownSosRecord : null;
+      final records =
+          snapshot.data ?? [if (cached != null && cached.isActive) cached];
+      return SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 620),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(22, 16, 22, 28),
+              children: [
+                ListenableBuilder(
+                  listenable: _mesh,
+                  builder: (context, _) {
+                    final mesh = _mesh;
+                    final sosActive = records.any((r) => r.isActive);
+                    final rescueActive =
+                        mesh.ownerId == me.id &&
+                        mesh.rescueActive &&
+                        me.isVerifiedRescuer;
+                    return Row(
                       children: [
-                        Text(
-                          active
-                              ? 'SOS กำลังทำงาน'
-                              : 'เมื่อคุณต้องการความช่วยเหลือ',
-                          style: const TextStyle(
-                            color: Color(0xFFF3CF70),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
+                        const Expanded(child: BrandLockup()),
+                        if (sosActive || rescueActive) ...[
+                          const SizedBox(width: 8),
+                          IconButton.filled(
+                            tooltip: sosActive
+                                ? 'SOS กำลังทำงาน · ดูสถานะ'
+                                : 'โหมดกู้ภัยกำลังทำงาน · ดูสถานะ',
+                            onPressed: sosActive ? onSos : onRescue,
+                            style: IconButton.styleFrom(
+                              backgroundColor: sosActive
+                                  ? AppColors.sos
+                                  : AppColors.rescue,
+                              foregroundColor: Colors.white,
+                              minimumSize: const Size(48, 48),
+                            ),
+                            icon: Icon(
+                              sosActive
+                                  ? Icons.sos_rounded
+                                  : Icons.health_and_safety_rounded,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          active
-                              ? 'ติดตาม SOS ของคุณ'
-                              : 'ขอความช่วยเหลือฉุกเฉิน',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 25,
-                            fontWeight: FontWeight.w700,
-                            height: 1.4,
-                          ),
-                        ),
+                        ],
                       ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: .09),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.sos_rounded,
-                      color: Color(0xFFF3CF70),
-                      size: 28,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text(
-                active
-                    ? 'บันทึกในเครื่องแล้ว เปิดดูสถานะการส่งได้ที่นี่'
-                    : 'บันทึกเหตุฉุกเฉินพร้อมพิกัด แม้ไม่มีอินเทอร์เน็ต',
-                style: const TextStyle(
-                  color: Color(0xFFE6D9B3),
-                  fontSize: 13,
-                  height: 1.6,
+                    );
+                  },
                 ),
-              ),
-              const SizedBox(height: 20),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 14,
+                const SizedBox(height: 20),
+                Text(
+                  'สวัสดี, ${me.firstName}',
+                  style: Theme.of(context).textTheme.titleLarge,
                 ),
-                decoration: BoxDecoration(
-                  color: AppColors.sos,
-                  borderRadius: BorderRadius.circular(14),
+                const SizedBox(height: 16),
+                _NearbyUrgentRequests(me: me),
+                EmergencyHomePanel(
+                  me: me,
+                  record: records.where((r) => r.isActive).firstOrNull,
+                  onDetails: onSos,
                 ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.sos_rounded,
-                      color: Colors.white,
-                      size: 24,
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        active ? 'ดูรายละเอียด SOS' : 'เปิดหน้า SOS',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 15,
-                        ),
+                const SizedBox(height: 16),
+                if (records.any((r) => r.isActive))
+                  NearbyPeoplePanel(me: me)
+                else
+                  _ConnectionPanel(onTap: onNearby),
+                const SizedBox(height: 12),
+                const SizedBox(height: 20),
+                Text(
+                  'ติดต่อและช่วยเหลือ',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 12),
+                AppCard(
+                  padding: EdgeInsets.zero,
+                  child: Column(
+                    children: [
+                      ListenableBuilder(
+                        listenable: _mesh,
+                        builder: (context, _) {
+                          final mesh = _mesh;
+                          return _ActionRow(
+                            icon: Icons.radar_rounded,
+                            title: 'บุคคลใกล้เคียง',
+                            detail: mesh.connected.isNotEmpty
+                                ? 'เชื่อมต่อ ${mesh.connectedDeviceCount} เครื่อง'
+                                : mesh.running
+                                ? 'กำลังค้นหาอุปกรณ์'
+                                : '',
+                            color: context.colors.info,
+                            onTap: onNearby,
+                          );
+                        },
                       ),
-                    ),
-                    const Icon(
-                      Icons.arrow_forward_rounded,
-                      color: Colors.white,
-                      size: 20,
-                    ),
-                  ],
+                      const Divider(height: 1, indent: 74, endIndent: 20),
+                      _ActionRow(
+                        icon: Icons.chat_bubble_outline_rounded,
+                        title: 'ข้อความ',
+                        detail: '',
+                        color: context.colors.info,
+                        onTap: onChat,
+                        count: unreadCount,
+                      ),
+                      const Divider(height: 1, indent: 74, endIndent: 20),
+                      _ActionRow(
+                        icon: Icons.health_and_safety_outlined,
+                        title: me.isVerifiedRescuer
+                            ? 'ศูนย์กู้ภัย'
+                            : 'สิทธิ์หน่วยกู้ภัย',
+                        detail: '',
+                        color: context.colors.rescue,
+                        onTap: onRescue,
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-      ),
-    ),
+      );
+    },
   );
 }
 
-class _SyncOverview extends StatelessWidget {
-  const _SyncOverview({required this.isMember});
-  final bool isMember;
+class _NearbyUrgentRequests extends StatelessWidget {
+  const _NearbyUrgentRequests({required this.me});
+  final AppUser me;
   @override
-  Widget build(BuildContext context) => ValueListenableBuilder<SyncSnapshot>(
-    valueListenable: SyncService.instance.status,
-    builder: (context, sync, _) {
-      final title = !isMember
-          ? 'บันทึกในเครื่องได้ ไม่ต้องสมัครสมาชิก'
-          : switch (sync.activity) {
-              SyncActivity.offline => 'ออฟไลน์ · ยังบันทึก SOS ในเครื่องได้',
-              SyncActivity.syncing => 'กำลังส่งข้อมูล',
-              SyncActivity.error => 'ยังส่งข้อมูลบางรายการไม่ได้',
-              SyncActivity.success => 'ซิงก์ข้อมูลแล้ว',
-              _ =>
-                sync.pendingCount > 0
-                    ? 'มี ${sync.pendingCount} รายการรอส่ง'
-                    : 'พร้อมบันทึกข้อมูลในเครื่อง',
-            };
-      return Row(
-        children: [
-          Icon(
-            sync.activity == SyncActivity.offline
-                ? Icons.cloud_off_outlined
-                : Icons.shield_outlined,
-            color: context.colors.info,
-            size: 18,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              title,
-              style: TextStyle(
-                color: context.colors.muted,
-                fontSize: 12,
-                height: 1.5,
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: NearbyMeshService.instance,
+    builder: (context, _) {
+      final mesh = NearbyMeshService.instance;
+      final cases = mesh.currentSosCases;
+      if (cases.isEmpty) return const SizedBox.shrink();
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.sos,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppColors.sos),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'SOS ที่ติดต่อได้ · ${cases.length} คำขอ',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
               ),
             ),
-          ),
-          if (isMember && sync.pendingCount > 0)
-            IconButton(
-              tooltip: 'ลองส่งข้อมูลอีกครั้ง',
-              onPressed: sync.isBusy ? null : SyncService.instance.retryAll,
-              icon: const Icon(Icons.refresh_rounded),
+            for (final message in cases.take(1))
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                textColor: Colors.white,
+                iconColor: Colors.white,
+                leading: const Icon(Icons.sos_rounded, color: Colors.white),
+                title: Text(
+                  mesh.chatPeerName(message.data['origin'].toString()),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                  (message.data['data'] as Map)['text']?.toString() ??
+                      'ต้องการความช่วยเหลือ',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: const Icon(Icons.chat_bubble_outline_rounded),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => UnifiedConversationScreen(
+                      me: me,
+                      contact: ChatContact(
+                        name: mesh.chatPeerName(
+                          message.data['origin'].toString(),
+                        ),
+                        device: message.data['origin'].toString(),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            if (cases.length > 1)
+              TextButton(
+                style: TextButton.styleFrom(foregroundColor: Colors.white),
+                onPressed: () => Navigator.of(
+                  context,
+                ).push(MaterialPageRoute(builder: (_) => NearbyScreen(me: me))),
+                child: Text('ดูคำขอทั้งหมด ${cases.length} รายการ'),
+              ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+class _ConnectionPanel extends StatelessWidget {
+  const _ConnectionPanel({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: NearbyMeshService.instance,
+    builder: (context, _) {
+      final mesh = NearbyMeshService.instance;
+      final connected = mesh.connectedDeviceCount;
+      return AppCard(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  connected > 0 ? Icons.link_rounded : Icons.link_off_rounded,
+                  color: context.colors.info,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    connected > 0
+                        ? 'เชื่อมต่อแล้ว $connected เครื่อง'
+                        : 'ยังไม่ได้เชื่อมต่อกับใคร',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ],
             ),
-        ],
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: onTap,
+              icon: const Icon(Icons.radar_rounded),
+              label: Text(
+                connected > 0
+                    ? 'ดูอุปกรณ์ที่เชื่อมต่อ'
+                    : mesh.running
+                    ? 'ดูอุปกรณ์ที่พบ'
+                    : 'ค้นหาบุคคลใกล้เคียง',
+              ),
+            ),
+          ],
+        ),
       );
     },
   );
@@ -790,15 +901,17 @@ class _ActionRow extends StatelessWidget {
                     fontSize: 15,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  detail,
-                  style: TextStyle(
-                    color: context.colors.muted,
-                    fontSize: 12,
-                    height: 1.5,
+                if (detail.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    detail,
+                    style: TextStyle(
+                      color: context.colors.muted,
+                      fontSize: 12,
+                      height: 1.5,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),

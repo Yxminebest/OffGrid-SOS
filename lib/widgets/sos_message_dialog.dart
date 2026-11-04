@@ -36,10 +36,12 @@ class SosQuickNeeds extends StatelessWidget {
       const SizedBox(height: 8),
       Wrap(
         spacing: 8,
-        runSpacing: 4,
+        runSpacing: 8,
         children: [
           for (final need in sosQuickNeeds)
             FilterChip(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+              showCheckmark: true,
               label: Text(need),
               labelStyle: Theme.of(context).textTheme.bodyMedium,
               selected: selected.contains(need),
@@ -103,7 +105,7 @@ class _SosMessageDialogState extends State<SosMessageDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: Text(widget.editing ? 'แก้ไขข้อความ SOS' : 'เปิด SOS หรือไม่?'),
+    title: Text(widget.editing ? 'แก้ไขข้อความ SOS' : 'ยืนยันขอความช่วยเหลือ'),
     content: SizedBox(
       width: 420,
       child: SingleChildScrollView(
@@ -111,12 +113,21 @@ class _SosMessageDialogState extends State<SosMessageDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            SosQuickNeeds(
-              selected: _selected,
-              onChanged: (need, value) => setState(() {
-                value ? _selected.add(need) : _selected.remove(need);
-              }),
-            ),
+            if (widget.editing || widget.selected.isEmpty)
+              SosQuickNeeds(
+                selected: _selected,
+                onChanged: (need, value) => setState(() {
+                  value ? _selected.add(need) : _selected.remove(need);
+                }),
+              ),
+            if (!widget.editing && widget.selected.isNotEmpty)
+              Text(
+                composeSosMessage(_selected, ''),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  height: 1.6,
+                ),
+              ),
             const SizedBox(height: 16),
             TextField(
               controller: _details,

@@ -1,3 +1,4 @@
+import '../../app/app_palette.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../models/user.dart';
@@ -58,9 +59,7 @@ class _HistoryState extends State<RescueVerificationHistoryScreen> {
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  'ผลอนุมัติและประวัติที่เคยโหลดไว้สามารถอ่านขณะออฟไลน์ได้',
-                ),
+
                 if (status.error != null) Text(status.error!),
                 TextButton.icon(
                   onPressed: status.refreshing ? null : status.refresh,
@@ -88,7 +87,7 @@ class _HistoryState extends State<RescueVerificationHistoryScreen> {
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
                               color: row['status'] == 'approved'
-                                  ? const Color(0xFF1859A9)
+                                  ? AppColors.rescueStrong
                                   : null,
                             ),
                           ),

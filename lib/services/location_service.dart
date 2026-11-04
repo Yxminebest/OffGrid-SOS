@@ -71,6 +71,81 @@ class LocationService {
   final Duration gpsTimeout;
   static const Duration _timeout = Duration(seconds: 12);
 
+  // Foreground preparation starts before SOS, never invents a coordinate.
+  static StreamSubscription<SavedLocation>? _preparedSubscription;
+  static SavedLocation? _prepared;
+  static int _prepareGeneration = 0;
+  SavedLocation? get preparedLocation =>
+      _prepared != null && LocationFixWindow.valid(_prepared!)
+      ? _prepared
+      : null;
+
+  Future<void> prepare() async {
+    final generation = ++_prepareGeneration;
+    try {
+      if (_preparedSubscription != null) return;
+      if (!await Geolocator.isLocationServiceEnabled()) return;
+      final permission = await Geolocator.checkPermission();
+      if (permission != LocationPermission.whileInUse &&
+          permission != LocationPermission.always) {
+        return;
+      }
+      if (generation != _prepareGeneration) return;
+      _preparedSubscription = watchLocations().listen((fix) {
+        _prepared = fix;
+      }, onError: (Object _) {});
+    } catch (_) {
+      /* Permission and sensor failures must not block SOS. */
+    }
+  }
+
+  static Future<void> stopPreparing() async {
+    ++_prepareGeneration;
+    final subscription = _preparedSubscription;
+    _preparedSubscription = null;
+    await subscription?.cancel();
+  }
+
+  /// Yield cache immediately and then every real live fix; do not wait for
+  /// navigation-grade accuracy before attaching the first available SOS pin.
+  Stream<SavedLocation> emergencyLocations() => Stream.multi((events) {
+    StreamSubscription<SavedLocation>? live;
+    var cancelled = false;
+    final prepared = preparedLocation;
+    if (prepared != null) events.add(prepared);
+    // Read the OS cache in parallel; a slow cache lookup never holds up GPS.
+    unawaited(
+      _lastKnown().then((previous) {
+        if (!cancelled && prepared == null && previous != null) {
+          events.add(previous);
+        }
+      }),
+    );
+    unawaited(() async {
+      try {
+        if (!await isEnabled() || cancelled) return;
+        final permission = await Geolocator.checkPermission();
+        if (cancelled ||
+            (permission != LocationPermission.whileInUse &&
+                permission != LocationPermission.always)) {
+          return;
+        }
+        live = watchLocations().listen(
+          events.add,
+          onError: (Object error) {
+            if (!cancelled) events.addError(error);
+          },
+        );
+      } catch (error) {
+        if (!cancelled) events.addError(error);
+      }
+    }());
+    events.onCancel = () {
+      cancelled = true;
+      unawaited(live?.cancel());
+    };
+  });
+
   Future<bool> isEnabled() =>
       Geolocator.isLocationServiceEnabled().timeout(_timeout);
   Future<bool> isPermissionBlocked() async =>
@@ -139,6 +214,41 @@ class LocationService {
     } finally {
       timer.cancel();
       await sub.cancel();
+    }
+  }
+
+  /// Chat sharing should not wait for navigation-grade convergence. Keep the
+  /// reported uncertainty and timestamp; the confirmation UI shows both.
+  Future<SavedLocation?> firstFix(
+    Stream<SavedLocation> fixes, {
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    try {
+      return await fixes
+          .where(LocationFixWindow.valid)
+          .timeout(timeout, onTimeout: (sink) => sink.close())
+          .first;
+    } on StateError {
+      return null;
+    }
+  }
+
+  Future<SavedLocation?> getQuickLocation() async {
+    try {
+      if (!await isEnabled()) return await _lastKnown();
+      var permission = await Geolocator.checkPermission().timeout(_timeout);
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission().timeout(_timeout);
+      }
+      if (permission != LocationPermission.whileInUse &&
+          permission != LocationPermission.always) {
+        return null;
+      }
+      final cached = preparedLocation;
+      if (cached != null) return cached;
+      return await firstFix(emergencyLocations()) ?? await _lastKnown();
+    } on Exception {
+      return await _lastKnown();
     }
   }
 

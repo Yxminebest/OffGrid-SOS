@@ -1,7 +1,22 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+val releaseSigningFile = rootProject.file("key.properties")
+val releaseSigning = Properties().apply {
+    if (releaseSigningFile.exists()) releaseSigningFile.inputStream().use { load(it) }
+}
+val hasReleaseSigning = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+    .all { !releaseSigning.getProperty(it).isNullOrBlank() }
+val releaseBundleRequested = gradle.startParameter.taskNames.any {
+    it.endsWith("bundleRelease", ignoreCase = true)
+}
+if ((releaseBundleRequested || System.getenv("OFFGRID_REQUIRE_RELEASE_SIGNING") == "true") && !hasReleaseSigning) {
+    throw GradleException("Production build requires android/key.properties with a private release/upload key.")
 }
 
 android {
@@ -25,11 +40,21 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("production") {
+                storeFile = rootProject.file(releaseSigning.getProperty("storeFile"))
+                storePassword = releaseSigning.getProperty("storePassword")
+                keyAlias = releaseSigning.getProperty("keyAlias")
+                keyPassword = releaseSigning.getProperty("keyPassword")
+            }
+        }
+    }
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Test APKs keep their existing signature; publishing must opt in
+            // to the private key and enforce OFFGRID_REQUIRE_RELEASE_SIGNING.
+            signingConfig = signingConfigs.getByName(if (hasReleaseSigning) "production" else "debug")
         }
     }
 }

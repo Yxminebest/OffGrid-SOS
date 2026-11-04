@@ -11,8 +11,10 @@ class MeshCrypto {
   final _dh = X25519();
   final _ed = Ed25519();
   final _aes = AesGcm.with256bits();
+  final _sharedKeys = <String, Future<SecretKey>>{};
   String _owner = '';
   Future<void> initialize(String owner) async {
+    _sharedKeys.clear();
     _owner = owner;
     final key = 'mesh_keys_v1_$owner';
     final raw = await read(key);
@@ -97,13 +99,24 @@ class MeshCrypto {
     }
   }
 
-  Future<SecretKey> _shared(Map cert) => _dh.sharedSecretKey(
-    keyPair: _exchange,
-    remotePublicKey: SimplePublicKey(
-      base64Decode(cert['x']),
-      type: KeyPairType.x25519,
-    ),
-  );
+  Future<SecretKey> _shared(Map cert) {
+    final key = cert['x'] as String;
+    final cached = _sharedKeys[key];
+    if (cached != null) return cached;
+    // Cache only the ECDH result, never nonces or ciphertext. A new account
+    // session clears the cache; a changed remote exchange key has a new entry.
+    if (_sharedKeys.length >= 128) _sharedKeys.remove(_sharedKeys.keys.first);
+    final shared = _dh.sharedSecretKey(
+      keyPair: _exchange,
+      remotePublicKey: SimplePublicKey(
+        base64Decode(key),
+        type: KeyPairType.x25519,
+      ),
+    );
+    _sharedKeys[key] = shared;
+    return shared;
+  }
+
   List<int> _statusBytes(Map<String, dynamic> message) => _canonical(
     Map<String, dynamic>.from(message)
       ..remove('ttl')

@@ -1,3 +1,4 @@
+import '../../widgets/sos_response_panel.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 
@@ -5,11 +6,12 @@ import '../../app/theme.dart';
 import '../../widgets/app_card.dart';
 import '../../widgets/location_actions.dart';
 import '../../widgets/sos_message_dialog.dart';
-import '../nearby/nearby_screen.dart';
 import '../../data/models/local_sos_record.dart';
 import '../../data/repositories/sos_repository.dart';
 import '../../models/user.dart';
 import '../../services/location_service.dart';
+import '../../services/sos_location_tracker.dart';
+import '../../widgets/nearby_people_panel.dart';
 import '../../services/nearby_mesh_service.dart';
 import '../../services/sync_service.dart';
 import '../rescue/rescue_case_chat_screen.dart';
@@ -42,6 +44,16 @@ class _SosScreenState extends State<SosScreen> {
   final Set<String> _selectedNeeds = {};
 
   bool _busy = false;
+  late final _locationTracker = SosLocationTracker(
+    _locationService,
+    _repository,
+    _mesh,
+  );
+  @override
+  void dispose() {
+    _locationTracker.cancel();
+    super.dispose();
+  }
 
   Future<void> _activate() async {
     final note = await showDialog<String>(
@@ -53,13 +65,7 @@ class _SosScreenState extends State<SosScreen> {
     setState(() => _busy = true);
 
     try {
-      final location = await _locationService.getLatestLocation();
-
-      if (mounted &&
-          location != null &&
-          LocationFixWindow.accuracy(location) > 30) {
-        _show(location.qualityDescription);
-      }
+      final location = _locationService.preparedLocation;
 
       final record = await _repository.create(
         user: widget.me,
@@ -72,6 +78,7 @@ class _SosScreenState extends State<SosScreen> {
         final mesh = _mesh;
         await mesh.initializeForUser(widget.me);
         await mesh.publishSosRecord(record);
+        _locationTracker.start(record);
         if (!mesh.running) {
           unawaited(
             mesh
@@ -194,6 +201,7 @@ class _SosScreenState extends State<SosScreen> {
     if (confirm != true) return;
 
     try {
+      _locationTracker.cancel();
       await _repository.stop(record);
       try {
         await _mesh.initializeForUser(widget.me);
@@ -276,6 +284,18 @@ class _SosScreenState extends State<SosScreen> {
               return ListView(
                 padding: const EdgeInsets.fromLTRB(20, 18, 20, 30),
                 children: [
+                  if (active != null) ...[
+                    SosResponsePanel(
+                      me: widget.me,
+                      mesh: _mesh,
+                      owner: widget.me.id,
+                      caseOrigin: _mesh.deviceId,
+                      caseId: active.id,
+                      revision: active.revision,
+                    ),
+                    NearbyPeoplePanel(me: widget.me, mesh: _mesh),
+                    const SizedBox(height: 16),
+                  ],
                   if (active == null)
                     _InactivePanel(
                       busy: _busy,
@@ -302,39 +322,6 @@ class _SosScreenState extends State<SosScreen> {
                           : null,
                     ),
 
-                  if (active != null) ...[
-                    const SizedBox(height: 18),
-                    AppCard(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'ส่ง SOS ให้คนใกล้ตัว',
-                            style: TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'การบันทึกในเครื่องยังไม่ใช่การส่งถึงผู้ช่วยเหลือ เปิด Nearby และเชื่อมต่ออุปกรณ์เพื่อส่งต่อ SOS',
-                            style: TextStyle(
-                              color: context.colors.muted,
-                              fontSize: 13,
-                              height: 1.6,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          OutlinedButton.icon(
-                            onPressed: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => NearbyScreen(me: widget.me),
-                              ),
-                            ),
-                            icon: const Icon(Icons.radar_rounded),
-                            label: const Text('เปิด Nearby'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
                   if (active != null && _mesh.activeSosId != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 14),
@@ -441,7 +428,7 @@ class _InactivePanel extends StatelessWidget {
   final VoidCallback onActivate;
   @override
   Widget build(BuildContext context) => AppCard(
-    padding: const EdgeInsets.all(22),
+    padding: const EdgeInsets.all(18),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -471,7 +458,7 @@ class _InactivePanel extends StatelessWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    'เริ่มต้น SOS ของคุณ',
+                    'เลือกเหตุ · ตรวจข้อความ · เปิด SOS',
                     style: TextStyle(color: context.colors.muted, fontSize: 13),
                   ),
                 ],
@@ -479,12 +466,7 @@ class _InactivePanel extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 22),
-        Text(
-          'เพิ่มข้อความและพิกัด เพื่อให้คนใกล้ตัวรู้ว่าคุณต้องการความช่วยเหลือ',
-          style: TextStyle(color: context.colors.muted, height: 1.7),
-        ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 16),
         SosQuickNeeds(selected: selected, onChanged: onChanged),
         const SizedBox(height: 20),
         FilledButton.icon(
@@ -510,7 +492,7 @@ class _InactivePanel extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         Text(
-          'การบันทึกในเครื่องยังไม่ยืนยันว่ามีผู้รับ SOS แล้ว',
+          'ตรวจสถานะการส่งหลังเปิด SOS',
           textAlign: TextAlign.center,
           style: TextStyle(
             color: context.colors.muted,
@@ -542,7 +524,7 @@ class _ActivePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final locationText = record.latitude == null || record.longitude == null
-        ? 'ไม่มีพิกัดใหม่ • SOS ยังบันทึกได้'
+        ? 'ยังไม่มีพิกัดใหม่'
         : '${record.latitude!.toStringAsFixed(5)}, '
               '${record.longitude!.toStringAsFixed(5)}';
 
@@ -557,7 +539,7 @@ class _ActivePanel extends StatelessWidget {
             border: Border.all(color: AppColors.error.withValues(alpha: .45)),
           ),
           child: const Text(
-            'SOS กำลังทำงาน • บันทึกในเครื่องแล้ว',
+            'SOS กำลังทำงาน',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: AppColors.error,
@@ -578,6 +560,7 @@ class _ActivePanel extends StatelessWidget {
           value: locationText,
         ),
         if (record.latitude != null && record.longitude != null) ...[
+          const SizedBox(height: 16),
           LocationActions(
             latitude: record.latitude!,
             longitude: record.longitude!,
@@ -603,22 +586,6 @@ class _ActivePanel extends StatelessWidget {
           onPressed: busy ? null : onRefreshLocation,
           icon: const Icon(Icons.gps_fixed),
           label: Text(busy ? 'กำลังรับพิกัดใหม่…' : 'อัปเดตพิกัด SOS (GPS)'),
-        ),
-        const SizedBox(height: 10),
-        _InfoLine(
-          icon: Icons.sync_rounded,
-          title: 'การซิงก์คลาวด์',
-          value: switch (record.syncState) {
-            'synced' =>
-              record.ownerUserId == null
-                  ? 'เก็บในอุปกรณ์นี้'
-                  : 'ซิงก์คลาวด์แล้ว · ยังไม่ใช่การยืนยันจากหน่วยกู้ภัย',
-            'error' => 'ยังส่งไม่สำเร็จ จะลองอีกครั้ง',
-            _ =>
-              record.ownerUserId == null
-                  ? 'เก็บในอุปกรณ์นี้'
-                  : 'รออินเทอร์เน็ตเพื่อซิงก์คลาวด์',
-          },
         ),
         if (record.lastError != null) ...[
           const SizedBox(height: 10),

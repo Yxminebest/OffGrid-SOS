@@ -39,9 +39,6 @@ class RescueHistoryScreen extends StatelessWidget {
             return ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                const Text(
-                  'ประวัติในเครื่องนี้ แสดงสถานะล่าสุดของแต่ละเคส การหยุด SOS ไม่ได้หมายถึงช่วยเหลือสำเร็จ',
-                ),
                 const SizedBox(height: 12),
                 if (rows.isEmpty)
                   const Padding(
@@ -72,7 +69,7 @@ class RescueHistoryScreen extends StatelessWidget {
             Text(name, style: Theme.of(context).textTheme.titleMedium),
             Text(
               body['active'] == true
-                  ? 'กำลังขอความช่วยเหลือ'
+                  ? 'สถานะที่ได้รับล่าสุด: เปิด SOS · ยังไม่ยืนยันปัจจุบัน'
                   : 'ผู้แจ้งหยุด SOS แล้ว',
             ),
             if (at != null) Text('อัปเดต: ${LocationActions.recordedAt(at)}'),

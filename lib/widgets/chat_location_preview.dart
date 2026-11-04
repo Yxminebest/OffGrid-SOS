@@ -1,3 +1,4 @@
+import '../app/app_palette.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_vector_tiles/flutter_map_vector_tiles.dart' as vt;
@@ -93,7 +94,7 @@ class _ChatLocationPreviewState extends State<ChatLocationPreview> {
                                 height: 42,
                                 child: const Icon(
                                   Icons.location_on,
-                                  color: Color(0xFFC62828),
+                                  color: AppColors.mapPin,
                                   size: 36,
                                 ),
                               ),

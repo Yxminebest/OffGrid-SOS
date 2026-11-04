@@ -80,7 +80,10 @@ class NearbyMediaFiles {
     if (offset != length || length + bytes.length > (body['size'] as int)) {
       throw StateError('ลำดับส่วนไฟล์ไม่ถูกต้อง');
     }
-    await partial.writeAsBytes(bytes, mode: FileMode.append, flush: true);
+    // Each append closes its file before ACK. Avoid fsync per 12 KB;
+    // final SHA-256 verification still guards delivery and restart resumes by
+    // the actual file length rather than a separately cached offset.
+    await partial.writeAsBytes(bytes, mode: FileMode.append);
     return length + bytes.length;
   }
 
@@ -101,6 +104,20 @@ class NearbyMediaFiles {
     );
     await partial.rename(output.path);
     return output.path;
+  }
+
+  Stream<Uint8List> chunks(String path, int offset) async* {
+    final file = await File(path).open();
+    try {
+      await file.setPosition(offset);
+      while (true) {
+        final bytes = await file.read(chunkBytes);
+        if (bytes.isEmpty) break;
+        yield bytes;
+      }
+    } finally {
+      await file.close();
+    }
   }
 
   Future<Uint8List> read(String path, int offset) async {

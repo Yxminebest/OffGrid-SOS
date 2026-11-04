@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../app/theme.dart';
-import '../../widgets/appearance_picker.dart';
 import '../../widgets/brand_mark.dart';
 
 import '../../models/user.dart';
@@ -9,8 +8,6 @@ import '../../models/user.dart';
 import '../../services/auth_service.dart';
 
 import 'forgot_password_screen.dart';
-
-import 'guest_screen.dart';
 
 import 'register_screen.dart';
 
@@ -128,21 +125,6 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Future<void> _openGuest() async {
-    final navigator = Navigator.of(context);
-    final onDone = widget.onDone;
-    await navigator.push(
-      MaterialPageRoute(
-        builder: (_) => GuestScreen(
-          onDone: (identity) {
-            navigator.popUntil((route) => route.isFirst);
-            onDone(identity);
-          },
-        ),
-      ),
-    );
-  }
-
   void _showError(String message) {
     final needsVerification = message.contains('ยืนยันอีเมล');
 
@@ -171,175 +153,151 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final p = context.colors;
     return Scaffold(
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 480),
-            child: ListView(
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              padding: const EdgeInsets.fromLTRB(24, 18, 24, 28),
-              children: [
-                Row(
-                  children: [
-                    const Expanded(child: BrandLockup()),
-                    const ThemeModeButton(),
-                  ],
-                ),
-                const SizedBox(height: 32),
-                Text(
-                  'อุ่นใจได้\nแม้ไกลสัญญาณ',
-                  style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                    fontSize: 30,
-                    height: 1.3,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'บันทึก SOS และเชื่อมต่อคนใกล้ตัว\nแม้อินเทอร์เน็ตไม่พร้อม',
-                  style: TextStyle(color: p.muted, height: 1.65),
-                ),
-                const SizedBox(height: 28),
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: AutofillGroup(
-                    child: Form(
-                      key: _form,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Text(
-                            'เริ่มต้นด้วยบัญชีของคุณ',
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          const SizedBox(height: 5),
-                          Text(
-                            'ใช้บัญชีของคุณเพื่อติดตามข้อมูลและการสนทนา',
-                            style: TextStyle(color: p.muted, fontSize: 13),
-                          ),
-                          const SizedBox(height: 22),
-                          TextFormField(
-                            controller: _email,
-                            enabled: !_busy,
-                            keyboardType: TextInputType.emailAddress,
-                            textInputAction: TextInputAction.next,
-                            autofillHints: const [
-                              AutofillHints.username,
-                              AutofillHints.email,
-                            ],
-                            validator: (value) =>
-                                AuthService.isValidEmail(value ?? '')
-                                ? null
-                                : 'กรอกอีเมลให้ถูกต้อง',
-                            decoration: const InputDecoration(
-                              labelText: 'อีเมล',
-                              hintText: 'you@example.com',
-                              prefixIcon: Icon(Icons.alternate_email_rounded),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          TextFormField(
-                            controller: _password,
-                            enabled: !_busy,
-                            obscureText: _hidePassword,
-                            textInputAction: TextInputAction.done,
-                            autofillHints: const [AutofillHints.password],
-                            validator: (value) => value == null || value.isEmpty
-                                ? 'กรอกรหัสผ่านของคุณ'
-                                : null,
-                            onFieldSubmitted: (_) => _login(),
-                            decoration: InputDecoration(
-                              labelText: 'รหัสผ่าน',
-                              prefixIcon: const Icon(
-                                Icons.lock_outline_rounded,
-                              ),
-                              suffixIcon: IconButton(
-                                tooltip: _hidePassword
-                                    ? 'แสดงรหัสผ่าน'
-                                    : 'ซ่อนรหัสผ่าน',
-                                onPressed: _busy
-                                    ? null
-                                    : () => setState(
-                                        () => _hidePassword = !_hidePassword,
-                                      ),
-                                icon: Icon(
-                                  _hidePassword
-                                      ? Icons.visibility_outlined
-                                      : Icons.visibility_off_outlined,
-                                ),
-                              ),
-                            ),
-                          ),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: TextButton(
-                              onPressed: _busy ? null : _openForgotPassword,
-                              child: const Text('ลืมรหัสผ่าน?'),
-                            ),
-                          ),
-                          FilledButton(
-                            onPressed: _busy ? null : _login,
-                            child: _busy
-                                ? const SizedBox(
-                                    width: 22,
-                                    height: 22,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Text('เข้าสู่ระบบ'),
-                          ),
-                          const SizedBox(height: 10),
-                          Wrap(
-                            alignment: WrapAlignment.center,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: [
-                              Text(
-                                'ยังไม่มีบัญชี?',
-                                style: TextStyle(color: p.muted, fontSize: 13),
-                              ),
-                              TextButton(
-                                onPressed: _busy ? null : _openRegister,
-                                child: const Text('สมัครสมาชิก'),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
+            child: LayoutBuilder(
+              builder: (context, constraints) => SingleChildScrollView(
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: const EdgeInsets.fromLTRB(24, 18, 24, 28),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: (constraints.maxHeight - 46).clamp(
+                      0,
+                      double.infinity,
                     ),
                   ),
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    Expanded(child: Divider(color: p.border)),
-                    Flexible(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 14),
-                        child: Text(
-                          'เริ่มต้นได้ทันที',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: p.muted, fontSize: 12),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Center(child: BrandMark(size: 88)),
+                      const SizedBox(height: 16),
+                      Text(
+                        'SOSBROO',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.headlineMedium
+                            ?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 2,
+                            ),
+                      ),
+                      const SizedBox(height: 36),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: AutofillGroup(
+                          child: Form(
+                            key: _form,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                TextFormField(
+                                  controller: _email,
+                                  enabled: !_busy,
+                                  keyboardType: TextInputType.emailAddress,
+                                  textInputAction: TextInputAction.next,
+                                  autofillHints: const [
+                                    AutofillHints.username,
+                                    AutofillHints.email,
+                                  ],
+                                  validator: (value) =>
+                                      AuthService.isValidEmail(value ?? '')
+                                      ? null
+                                      : 'กรอกอีเมลให้ถูกต้อง',
+                                  decoration: const InputDecoration(
+                                    labelText: 'อีเมล',
+                                    hintText: 'you@example.com',
+                                    prefixIcon: Icon(
+                                      Icons.alternate_email_rounded,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                TextFormField(
+                                  controller: _password,
+                                  enabled: !_busy,
+                                  obscureText: _hidePassword,
+                                  textInputAction: TextInputAction.done,
+                                  autofillHints: const [AutofillHints.password],
+                                  validator: (value) =>
+                                      value == null || value.isEmpty
+                                      ? 'กรอกรหัสผ่านของคุณ'
+                                      : null,
+                                  onFieldSubmitted: (_) => _login(),
+                                  decoration: InputDecoration(
+                                    labelText: 'รหัสผ่าน',
+                                    prefixIcon: const Icon(
+                                      Icons.lock_outline_rounded,
+                                    ),
+                                    suffixIcon: IconButton(
+                                      tooltip: _hidePassword
+                                          ? 'แสดงรหัสผ่าน'
+                                          : 'ซ่อนรหัสผ่าน',
+                                      onPressed: _busy
+                                          ? null
+                                          : () => setState(
+                                              () => _hidePassword =
+                                                  !_hidePassword,
+                                            ),
+                                      icon: Icon(
+                                        _hidePassword
+                                            ? Icons.visibility_outlined
+                                            : Icons.visibility_off_outlined,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: TextButton(
+                                    onPressed: _busy
+                                        ? null
+                                        : _openForgotPassword,
+                                    child: const Text('ลืมรหัสผ่าน?'),
+                                  ),
+                                ),
+                                FilledButton(
+                                  onPressed: _busy ? null : _login,
+                                  child: _busy
+                                      ? const SizedBox(
+                                          width: 22,
+                                          height: 22,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Text('เข้าสู่ระบบ'),
+                                ),
+                                const SizedBox(height: 10),
+                                Wrap(
+                                  alignment: WrapAlignment.center,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    Text(
+                                      'ยังไม่มีบัญชี?',
+                                      style: TextStyle(
+                                        color: context.colors.muted,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                    TextButton(
+                                      onPressed: _busy ? null : _openRegister,
+                                      child: const Text('สมัครสมาชิก'),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                    Expanded(child: Divider(color: p.border)),
-                  ],
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: _busy ? null : _openGuest,
-                  icon: const Icon(Icons.person_outline_rounded),
-                  label: const Text('ใช้งานโดยไม่สมัครสมาชิก'),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'บันทึก SOS ในเครื่องได้ แม้ไม่ได้เข้าสู่ระบบ',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: p.muted, fontSize: 12),
-                ),
-              ],
+              ),
             ),
           ),
         ),

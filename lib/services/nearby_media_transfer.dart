@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import '../data/repositories/nearby_chat_repository.dart';
 import 'nearby_media_files.dart';
+
+typedef _MediaRequest = ({String id, Future<Map?> reply});
 
 class MediaProgress {
   const MediaProgress(
@@ -18,7 +21,7 @@ class MediaProgress {
   double get fraction => total == 0 ? 0 : bytes / total;
 }
 
-/// Stop-and-wait chunks share the existing paired transport (Nearby or RFCOMM).
+/// A bounded four-chunk window shares the paired transport (Nearby or RFCOMM).
 /// A chunk ACK means persisted bytes; a message ACK means hash verified + DB saved.
 class NearbyMediaTransfer {
   NearbyMediaTransfer({
@@ -44,17 +47,52 @@ class NearbyMediaTransfer {
   final Future<void> Function(Map<String, dynamic> envelope) received;
   final Duration timeout;
   final progress = <String, MediaProgress>{};
-  final _waiting = <String, ({String peer, Completer<Map?> result})>{};
+  final _waiting =
+      <String, ({String peer, String? messageId, Completer<Map?> result})>{};
   final _incoming = <String, Map<String, dynamic>>{};
+  final _incomingOffsets = <String, int>{};
+  // At most four transfers, each holding at most four 12 KB chunks.
+  final _aheadChunks =
+      <String, Map<int, ({Uint8List bytes, Map<String, dynamic> reply})>>{};
   final _busyPeers = <String>{};
+
+  void _forgetIncoming(String key) {
+    _incoming.remove(key);
+    _incomingOffsets.remove(key);
+    _aheadChunks.remove(key);
+  }
+
   int _generation = 0;
 
   void disconnected(String peer) {
     for (final pending in _waiting.values.where((p) => p.peer == peer)) {
       if (!pending.result.isCompleted) pending.result.complete(null);
     }
-    _incoming.removeWhere((_, env) => env['origin'] == peer);
+    for (final key
+        in _incoming.keys.where((k) => k.startsWith('$peer:')).toList()) {
+      _forgetIncoming(key);
+    }
     progress.removeWhere((_, p) => p.peer == peer && p.incoming);
+  }
+
+  final _activeMessages = <String>{};
+  final _cancelledMessages = <String>{};
+  void cancelMessage(String id) {
+    if (_activeMessages.contains(id)) _cancelledMessages.add(id);
+    for (final pending in _waiting.values.where((p) => p.messageId == id)) {
+      if (!pending.result.isCompleted) pending.result.complete(null);
+    }
+    progress.remove(id);
+    changed();
+  }
+
+  void cancelIncoming(String peer, String id) {
+    _forgetIncoming('$peer:$id');
+    final transfer = progress[id];
+    if (transfer != null && transfer.incoming && transfer.peer == peer) {
+      progress.remove(id);
+      changed();
+    }
   }
 
   void cancel() {
@@ -64,10 +102,12 @@ class NearbyMediaTransfer {
     }
     _waiting.clear();
     _incoming.clear();
+    _incomingOffsets.clear();
+    _aheadChunks.clear();
     progress.clear();
   }
 
-  Future<Map> _request(
+  Future<_MediaRequest> _beginRequest(
     String peer,
     String kind,
     Map<String, dynamic> body,
@@ -75,18 +115,40 @@ class NearbyMediaTransfer {
     final request = makeFrame(kind, {...body, 'target': peer});
     final id = request['id'] as String;
     final result = Completer<Map?>();
-    _waiting[id] = (peer: peer, result: result);
+    final message = body['message'];
+    final messageId =
+        body['messageId'] ?? (message is Map ? message['id'] : null);
+    _waiting[id] = (
+      peer: peer,
+      messageId: messageId as String?,
+      result: result,
+    );
     try {
       await sendFrame(peer, request);
-      final reply = await result.future.timeout(timeout);
+      return (id: id, reply: result.future);
+    } catch (_) {
+      _waiting.remove(id);
+      rethrow;
+    }
+  }
+
+  Future<Map> _finishRequest(_MediaRequest request) async {
+    try {
+      final reply = await request.reply.timeout(timeout);
       if (reply == null || reply['error'] != null) {
         throw StateError('รอเชื่อมต่อเพื่อส่งไฟล์ต่อ');
       }
       return reply;
     } finally {
-      _waiting.remove(id);
+      _waiting.remove(request.id);
     }
   }
+
+  Future<Map> _request(
+    String peer,
+    String kind,
+    Map<String, dynamic> body,
+  ) async => _finishRequest(await _beginRequest(peer, kind, body));
 
   Future<bool> send(String target, Map<String, dynamic> envelope) async {
     final who = owner();
@@ -95,12 +157,19 @@ class NearbyMediaTransfer {
     if (!_busyPeers.add(busyKey)) return false;
     final epoch = _generation;
     final id = envelope['id'] as String;
+    _activeMessages.add(id);
     final body = envelope['data'] as Map;
     var offset = 0;
+    StreamIterator<Uint8List>? reader;
+    final pendingRequests = <String>{};
     final size = body['size'] as int;
-    bool current() => epoch == _generation && owner() == who;
+    bool current() =>
+        epoch == _generation &&
+        owner() == who &&
+        !_cancelledMessages.contains(id);
     try {
       final row = await chats.find(who, id);
+      if (row?['historical'] == true) return false;
       final path = row?['localPath'] as String?;
       if (path == null || !await files.exists(path)) {
         throw StateError('ไม่พบไฟล์ในเครื่อง');
@@ -114,21 +183,40 @@ class NearbyMediaTransfer {
       if (offset < 0 || offset > size) {
         throw StateError('ขนาดไฟล์ตอบกลับไม่ถูกต้อง');
       }
+      reader = StreamIterator(files.chunks(path, offset));
       while (offset < size) {
-        if (!current()) return false;
-        final bytes = await files.read(path, offset);
-        if (bytes.isEmpty) throw StateError('อ่านไฟล์ไม่ครบ');
-        response = await _request(target, 'media_chunk', {
-          'messageId': id,
-          'offset': offset,
-          'bytes': base64Encode(bytes),
-        });
-        if (!current()) return false;
-        final next = response['offset'];
-        if (next is! int || next != offset + bytes.length || next > size) {
-          throw StateError('ยืนยันส่วนไฟล์ไม่ถูกต้อง');
+        final window = <({int end, _MediaRequest request})>[];
+        var cursor = offset;
+        // Dispatch in order, with at most four chunks awaiting ACKs. SOS/control
+        // still has priority in RadioSendQueue, including between these frames.
+        for (var i = 0; i < 4 && cursor < size; i++) {
+          if (!current()) return false;
+          if (!await reader.moveNext()) throw StateError('อ่านไฟล์ไม่ครบ');
+          final bytes = reader.current;
+          if (bytes.isEmpty || cursor + bytes.length > size) {
+            throw StateError('ขนาดไฟล์ไม่ตรง');
+          }
+          final request = await _beginRequest(target, 'media_chunk', {
+            'messageId': id,
+            'offset': cursor,
+            'bytes': base64Encode(bytes),
+          });
+          pendingRequests.add(request.id);
+          cursor += bytes.length;
+          window.add((end: cursor, request: request));
         }
-        offset = next;
+        final responses = await Future.wait(
+          window.map((part) => _finishRequest(part.request)),
+        );
+        if (!current()) return false;
+        for (var i = 0; i < window.length; i++) {
+          pendingRequests.remove(window[i].request.id);
+          final next = responses[i]['offset'];
+          if (next is! int || next != window[i].end || next > size) {
+            throw StateError('ยืนยันส่วนไฟล์ไม่ถูกต้อง');
+          }
+          offset = next;
+        }
         progress[id] = MediaProgress(target, offset, size, false);
         changed();
       }
@@ -153,7 +241,13 @@ class NearbyMediaTransfer {
       }
       return false;
     } finally {
+      await reader?.cancel();
+      for (final request in pendingRequests) {
+        _waiting.remove(request);
+      }
       _busyPeers.remove(busyKey);
+      _activeMessages.remove(id);
+      _cancelledMessages.remove(id);
     }
   }
 
@@ -220,6 +314,8 @@ class NearbyMediaTransfer {
         final offset = complete
             ? (env['data'] as Map)['size'] as int
             : await files.begin(who, origin, env['data'] as Map, id);
+        _incomingOffsets[key] = offset;
+        _aheadChunks.remove(key);
         reply['offset'] = offset;
         progress[id] = MediaProgress(
           origin,
@@ -243,16 +339,64 @@ class NearbyMediaTransfer {
           if (bytes.isEmpty || bytes.length > NearbyMediaFiles.chunkBytes) {
             return;
           }
+          final position = body['offset'] as int;
+          final expected = _incomingOffsets[key]!;
+          if (position + bytes.length > (meta['size'] as int)) return;
+          if (position > expected) {
+            final ahead = _aheadChunks.putIfAbsent(key, () => {});
+            if (position > expected + 4 * NearbyMediaFiles.chunkBytes ||
+                (!ahead.containsKey(position) && ahead.length >= 4)) {
+              throw StateError('ส่วนไฟล์เกินคิวรับ');
+            }
+            ahead[position] = (bytes: bytes, reply: reply);
+            // Do not ACK until the gap is filled and bytes are written.
+            // Returning lets the serialized receive loop process that gap.
+            return;
+          }
           final offset = await files.append(
             who,
             origin,
             meta,
             id,
-            body['offset'],
+            position,
             bytes,
           );
-          reply['offset'] = offset;
-          progress[id] = MediaProgress(origin, offset, meta['size'], true);
+          if (owner() != who ||
+              epoch != _generation ||
+              !_incoming.containsKey(key)) {
+            return;
+          }
+          _incomingOffsets[key] = offset;
+          reply['offset'] = position + bytes.length;
+          await sendFrame(origin, makeFrame('media_reply', reply));
+          var next = _aheadChunks[key]?.remove(offset);
+          while (next != null) {
+            final end = await files.append(
+              who,
+              origin,
+              meta,
+              id,
+              _incomingOffsets[key]!,
+              next.bytes,
+            );
+            if (owner() != who ||
+                epoch != _generation ||
+                !_incoming.containsKey(key)) {
+              return;
+            }
+            _incomingOffsets[key] = end;
+            next.reply['offset'] = end;
+            await sendFrame(origin, makeFrame('media_reply', next.reply));
+            next = _aheadChunks[key]?.remove(end);
+          }
+          progress[id] = MediaProgress(
+            origin,
+            _incomingOffsets[key]!,
+            meta['size'],
+            true,
+          );
+          changed();
+          return;
         } else if (frame['kind'] == 'media_end') {
           final saved = await chats.find(who, id);
           final exists =
@@ -273,9 +417,11 @@ class NearbyMediaTransfer {
           );
           if (owner() != who || epoch != _generation) return;
           reply['done'] = true;
-          _incoming.remove(key);
+          _forgetIncoming(key);
           progress.remove(id);
-          if (fresh) await received(message);
+          // Receipt is based on verified bytes + saved DB row, not the speed
+          // of the OS notification channel.
+          if (fresh) unawaited(received(message).catchError((_) {}));
         } else {
           return;
         }

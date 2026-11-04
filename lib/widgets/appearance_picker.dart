@@ -3,32 +3,6 @@ import '../app/theme.dart';
 import '../app/theme_controller.dart';
 import 'app_card.dart';
 
-class ThemeModeButton extends StatelessWidget {
-  const ThemeModeButton({super.key});
-  @override
-  Widget build(BuildContext context) => ListenableBuilder(
-    listenable: ThemeControllerScope.of(context),
-    builder: (context, _) {
-      final controller = ThemeControllerScope.of(context);
-      final dark = controller.mode == ThemeMode.dark;
-      return IconButton.outlined(
-        tooltip: dark ? 'เปลี่ยนเป็นโหมดสว่าง' : 'เปลี่ยนเป็นโหมดมืด',
-        onPressed: () =>
-            controller.setMode(dark ? ThemeMode.light : ThemeMode.dark),
-        icon: Icon(
-          dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-          size: 21,
-        ),
-        style: IconButton.styleFrom(
-          side: BorderSide(color: context.colors.border),
-          foregroundColor: context.colors.text,
-          backgroundColor: context.colors.surface,
-        ),
-      );
-    },
-  );
-}
-
 class AppearancePicker extends StatelessWidget {
   const AppearancePicker({super.key});
   @override
@@ -36,11 +10,6 @@ class AppearancePicker extends StatelessWidget {
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Text('รูปแบบการแสดงผล', style: Theme.of(context).textTheme.titleMedium),
-      const SizedBox(height: 5),
-      Text(
-        'เลือกแบบที่สบายตา แอปจะจำให้คุณ',
-        style: TextStyle(color: context.colors.muted, fontSize: 12),
-      ),
       const SizedBox(height: 12),
       ListenableBuilder(
         listenable: ThemeControllerScope.of(context),

@@ -1,3 +1,4 @@
+import '../app/app_palette.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -363,9 +364,6 @@ class _LocationMapScreenState extends State<LocationMapScreen>
                         icon: const Icon(Icons.copy_outlined),
                         label: const Text('คัดลอกพิกัด'),
                       ),
-                    const Text(
-                      'ถนนและชื่อสถานที่เปิดจากข้อมูลในแอป ไม่ต้องต่อเน็ต · แผนที่หันเหนือขึ้น',
-                    ),
                   ],
                 ),
               ),
@@ -455,8 +453,8 @@ class _LocationMapScreenState extends State<LocationMapScreen>
                     point: _point,
                     radius: widget.targetAccuracy!.clamp(1, 5000),
                     useRadiusInMeter: true,
-                    color: const Color(0xFFC62828).withValues(alpha: .10),
-                    borderColor: const Color(0xFFC62828).withValues(alpha: .4),
+                    color: AppColors.mapPin.withValues(alpha: .10),
+                    borderColor: AppColors.mapPin.withValues(alpha: .4),
                     borderStrokeWidth: 1,
                   ),
                 ],
@@ -472,7 +470,7 @@ class _LocationMapScreenState extends State<LocationMapScreen>
                     child: const Icon(
                       Icons.location_on,
                       size: 52,
-                      color: Color(0xFFC62828),
+                      color: AppColors.mapPin,
                       semanticLabel: 'ตำแหน่งที่บันทึกไว้',
                     ),
                   ),

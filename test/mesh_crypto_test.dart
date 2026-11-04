@@ -3,6 +3,36 @@ import 'package:offgrid_sos/services/mesh_crypto.dart';
 
 void main() {
   test(
+    'reused shared key keeps unique nonces and account changes invalidate it',
+    () async {
+      MeshCrypto make() {
+        final store = <String, String>{};
+        return MeshCrypto(
+          read: (k) async => store[k],
+          write: (k, v) async {
+            store[k] = v;
+          },
+        );
+      }
+
+      final a = make(), b = make();
+      await a.initialize('a');
+      await b.initialize('b');
+      final aCert = await a.certificate('a-device', 'A', null);
+      final bCert = await b.certificate('b-device', 'B', null);
+      final first = await a.seal(bCert, {'value': 1}, 'binding');
+      final second = await a.seal(bCert, {'value': 2}, 'binding');
+      expect(first['nonce'], isNot(second['nonce']));
+      expect((await b.open(aCert, first, 'binding'))['value'], 1);
+      expect((await b.open(aCert, second, 'binding'))['value'], 2);
+      await a.initialize('another-account');
+      final newCert = await a.certificate('a-device', 'Other', null);
+      final third = await a.seal(bCert, {'value': 3}, 'binding');
+      expect((await b.open(newCert, third, 'binding'))['value'], 3);
+      await expectLater(b.open(aCert, third, 'binding'), throwsA(anything));
+    },
+  );
+  test(
     'keys persist, TOFU rejects a replacement key, ciphertext binds recipient',
     () async {
       final aStore = <String, String>{}, bStore = <String, String>{};

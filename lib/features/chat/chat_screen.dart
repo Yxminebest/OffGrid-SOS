@@ -9,6 +9,7 @@ import '../../services/unified_chat_service.dart';
 import '../nearby/nearby_screen.dart';
 import 'new_chat_screen.dart';
 import 'unified_conversation_screen.dart';
+import 'mesh_room_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key, required this.me, this.service});
@@ -24,6 +25,8 @@ class _ChatScreenState extends State<ChatScreen> {
   StreamSubscription<List<Map<String, dynamic>>>? _cloud;
   String search = '';
   bool unread = false;
+  Future<void>? _refreshWork;
+  String? _peerSignature;
   @override
   void initState() {
     super.initState();
@@ -41,13 +44,30 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _changed() {
+    // Media progress belongs to the conversation view, not the whole inbox.
+    final peers =
+        chat.mesh.reachablePeers
+            .map(
+              (peer) =>
+                  '${peer.deviceId}:${peer.userId}:${peer.name}:${peer.attestedUntil}',
+            )
+            .toList()
+          ..sort();
+    final signature = peers.join('|');
+    if (signature == _peerSignature) return;
+    _peerSignature = signature;
     if (mounted) setState(() {});
   }
 
-  Future<void> _refresh() async {
+  Future<void> _refresh() => _refreshWork ??= _refreshOnce().whenComplete(() {
+    _refreshWork = null;
+  });
+
+  Future<void> _refreshOnce() async {
     try {
       await chat.rememberPeers(widget.me.id);
       if (widget.me.isMember && chat.online()) {
+        await chat.reconcileDeletedContacts(widget.me);
         await ChatService.instance.refreshInbox(widget.me);
       }
       await chat.flush();
@@ -81,17 +101,15 @@ class _ChatScreenState extends State<ChatScreen> {
           children: [
             ListTile(
               leading: const Icon(Icons.people_outline),
-              title: const Text('คนใกล้ตัว'),
-              subtitle: const Text('ค้นหาและจับคู่ได้โดยไม่ใช้อินเทอร์เน็ต'),
+              title: const Text('บุคคลใกล้เคียง'),
+
               onTap: () => Navigator.pop(ctx, 'nearby'),
             ),
             if (widget.me.isMember)
               ListTile(
                 leading: const Icon(Icons.person_search_outlined),
                 title: const Text('ค้นหาสมาชิก'),
-                subtitle: const Text(
-                  'ค้นหาผ่านอินเทอร์เน็ต แล้วสนทนาในห้องเดียวกัน',
-                ),
+
                 onTap: () => Navigator.pop(ctx, 'member'),
               ),
           ],
@@ -147,13 +165,6 @@ class _ChatScreenState extends State<ChatScreen> {
                       'ข้อความ',
                       style: Theme.of(context).textTheme.headlineMedium,
                     ),
-                    Text(
-                      'ทุกบทสนทนาในที่เดียว · อ่านได้แม้ออฟไลน์',
-                      style: TextStyle(
-                        color: context.colors.muted,
-                        fontSize: 13,
-                      ),
-                    ),
                   ],
                 ),
               ),
@@ -193,6 +204,18 @@ class _ChatScreenState extends State<ChatScreen> {
                 onSelected: (_) => setState(() => unread = true),
               ),
             ],
+          ),
+        ),
+        ListTile(
+          leading: const Icon(Icons.groups_outlined),
+          title: const Text('ห้องสนทนาส่วนกลาง'),
+          subtitle: const Text('ส่งข่าวถึงทุกเครื่องผ่านเครือข่ายใกล้เคียง'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (_) => MeshRoomScreen(mesh: chat.mesh),
+            ),
           ),
         ),
         Expanded(
@@ -235,7 +258,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         ),
                         const SizedBox(height: 8),
                         const Text(
-                          'จับคู่คนใกล้ตัว หรือเลือกสมาชิกที่ต้องการติดต่อ',
+                          'จับคู่บุคคลใกล้เคียง หรือเลือกสมาชิกที่ต้องการติดต่อ',
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 16),
@@ -300,6 +323,28 @@ class _ChatScreenState extends State<ChatScreen> {
                               Icons.chevron_right,
                               color: context.colors.muted,
                             ),
+                      onLongPress: () async {
+                        final confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('ซ่อนบทสนทนา'),
+                            content: Text(e.contact.name),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx, false),
+                                child: const Text('ยกเลิก'),
+                              ),
+                              FilledButton(
+                                onPressed: () => Navigator.pop(ctx, true),
+                                child: const Text('ซ่อน'),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (confirm == true) {
+                          await chat.hideConversation(widget.me.id, e.contact);
+                        }
+                      },
                       onTap: () => _open(e.contact),
                     );
                   },

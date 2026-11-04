@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:sembast/sembast.dart';
 import 'package:uuid/uuid.dart';
 
@@ -184,7 +185,8 @@ class MessageRepository {
         ownerLocalId: ownerLocalId,
         senderName: senderName,
       );
-      await ref.put(txn, record.toLocalMap());
+      final value = record.toLocalMap();
+      if (!mapEquals(existing, value)) await ref.put(txn, value);
     });
   }
 

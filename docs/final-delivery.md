@@ -1,16 +1,17 @@
 # ชุดส่งมอบ Off-Grid SOS & Nearby Share
 
-รุ่น 0.8.0+18 / Android API 24 ขึ้นไป / 24 ตุลาคม 2569
+รุ่น 0.10.0+31 / Android API 24 ขึ้นไป / 2 พฤศจิกายน 2569
 
 ## สิ่งที่เตรียมไว้
 
-- APK: `build/app/outputs/flutter-apk/Offgrid-SOS-v18-ready.apk`
-- ชุด ZIP: `build/delivery/Offgrid-SOS-v18-delivery.zip`
+- APK: `build/app/outputs/flutter-apk/Offgrid-SOS-v31-sos-receipts.apk`
 - ซอร์สโค้ดใน workspace นี้ พร้อม migrations/Edge Function และ README
-- [บันทึกรุ่นและสถานะตรวจ](release-v18.md)
-- [แผนการทดสอบออฟไลน์ 2–3 เครื่อง](offline-two-three-devices-v11.md) ใช้ขั้นตอนเดิมโดยติดตั้งรุ่น 18 ทุกเครื่อง และเพิ่มตรวจใบรับรอง/ลายเซ็นตาม release-v18
+- [บันทึกรุ่นและสถานะตรวจ](release-v31.md)
+- [แผนการทดสอบออฟไลน์ 2–3 เครื่อง](offline-two-three-devices-v11.md) ใช้ขั้นตอนเดิมโดยติดตั้งรุ่น 31 ทุกเครื่อง และเพิ่มตรวจใบรับรอง/ลายเซ็นตาม release-v31
 
 การส่งโค้ดขึ้น GitHub และการเผยแพร่/ให้คะแนนยังไม่ใช่หลักฐานว่าทดสอบภาคสนามครบ ชุดนี้เตรียมสำหรับรอบทดสอบที่ผู้ใช้พักไว้
+
+ดู [บันทึกรุ่นล่าสุด](release-v31.md) สำหรับยืนยัน SOS/รับเคส และ [งานก่อนเผยแพร่](publishing-checklist-v31.md) ส่วนรายละเอียดเก่าด้านล่างให้ใช้เทียบกับบันทึกรุ่นล่าสุดเป็นหลัก
 
 ## บัญชีและบทบาท
 

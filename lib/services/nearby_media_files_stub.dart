@@ -24,6 +24,8 @@ class NearbyMediaFiles {
   ) async => _unsupported();
   Future<String> finish(String owner, String peer, Map body, String id) async =>
       _unsupported();
+  Stream<Uint8List> chunks(String path, int offset) =>
+      Stream.error(UnsupportedError('ส่งไฟล์ Nearby ได้บน Android'));
   Future<Uint8List> read(String path, int offset) async => _unsupported();
   Future<Uint8List> allBytes(String path) async => _unsupported();
   Future<String> restore(

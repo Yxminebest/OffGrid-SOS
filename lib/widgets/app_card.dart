@@ -5,7 +5,7 @@ class AppCard extends StatelessWidget {
   const AppCard({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.all(16),
+    this.padding = const EdgeInsets.all(AppMetrics.cardPadding),
     this.margin,
     this.borderColor,
     this.backgroundColor,
@@ -25,7 +25,7 @@ class AppCard extends StatelessWidget {
         color: backgroundColor ?? context.colors.surface,
         clipBehavior: Clip.antiAlias,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: BorderRadius.circular(AppMetrics.cardRadius),
           side: BorderSide(
             color: borderColor ?? context.colors.border.withValues(alpha: .65),
           ),

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:sembast/sembast.dart';
 
 import '../local/local_database.dart';
@@ -54,13 +55,16 @@ class ConversationRepository {
         txn,
         finder: Finder(filter: Filter.equals('owner_local_id', ownerLocalId)),
       );
-      for (final row in old) {
-        await _local.conversationStore.record(row.key).delete(txn);
-      }
+      final remaining = {for (final row in old) row.key: row.value};
       for (final conversation in conversations) {
-        await _local.conversationStore
-            .record('$ownerLocalId:${conversation.id}')
-            .put(txn, conversation.toLocalMap());
+        final key = '$ownerLocalId:${conversation.id}';
+        final value = conversation.toLocalMap();
+        if (!mapEquals(remaining.remove(key), value)) {
+          await _local.conversationStore.record(key).put(txn, value);
+        }
+      }
+      for (final key in remaining.keys) {
+        await _local.conversationStore.record(key).delete(txn);
       }
     });
   }

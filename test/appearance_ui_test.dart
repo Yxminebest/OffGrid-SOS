@@ -1,4 +1,6 @@
+import 'package:offgrid_sos/widgets/brand_mark.dart';
 import 'support/mesh_issuer.dart';
+import 'package:offgrid_sos/widgets/app_card.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -18,6 +20,7 @@ import 'package:offgrid_sos/features/auth/login_screen.dart';
 import 'package:offgrid_sos/features/home/home_shell.dart';
 import 'package:offgrid_sos/features/nearby/nearby_screen.dart';
 import 'package:offgrid_sos/features/profile/profile_screen.dart';
+import 'package:offgrid_sos/features/profile/account_settings_screen.dart';
 import 'package:offgrid_sos/features/sos/sos_screen.dart';
 import 'package:offgrid_sos/features/rescue/rescue_screen.dart';
 import 'package:offgrid_sos/features/rescue/rescue_history_screen.dart';
@@ -35,7 +38,7 @@ const guest = AppUser(
   firstName: 'พิมพ์ชนก',
   lastName: 'ใจดี',
   isMember: false,
-  role: AppRole.guest,
+  role: AppRole.user,
 );
 const capture = bool.fromEnvironment('CAPTURE_UI');
 final screenKey = GlobalKey();
@@ -169,50 +172,83 @@ void main() {
     }
   });
 
-  testWidgets('login validates empty fields and theme toggle preserves input', (
-    tester,
-  ) async {
-    await pumpScreen(tester, LoginScreen(onDone: (_) {}));
-    await tester.enterText(
-      find.byType(TextFormField).first,
-      'person@example.com',
-    );
-    await tester.tap(find.byTooltip('เปลี่ยนเป็นโหมดมืด'));
-    await tester.pumpAndSettle();
-    expect(uiController.mode, ThemeMode.dark);
-    expect(find.text('person@example.com'), findsOneWidget);
-    await tester.ensureVisible(
-      find.widgetWithText(FilledButton, 'เข้าสู่ระบบ'),
-    );
-    await tester.tap(find.widgetWithText(FilledButton, 'เข้าสู่ระบบ'));
-    await tester.pumpAndSettle();
-    expect(find.text('กรอกรหัสผ่านของคุณ'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
+  testWidgets(
+    'login validates empty fields and external theme changes preserve input',
+    (tester) async {
+      await pumpScreen(tester, LoginScreen(onDone: (_) {}));
+      await tester.enterText(
+        find.byType(TextFormField).first,
+        'person@example.com',
+      );
+      await tester.runAsync(() => uiController.setMode(ThemeMode.dark));
+      await tester.pumpAndSettle();
+      expect(uiController.mode, ThemeMode.dark);
+      expect(find.text('person@example.com'), findsOneWidget);
+      await tester.ensureVisible(
+        find.widgetWithText(FilledButton, 'เข้าสู่ระบบ'),
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'เข้าสู่ระบบ'));
+      await tester.pumpAndSettle();
+      expect(find.text('กรอกรหัสผ่านของคุณ'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
-  testWidgets('guest entry returns to the root and completes identity setup', (
+  testWidgets(
+    'login offers member sign in and registration without guest or theme entry',
+    (tester) async {
+      await pumpScreen(tester, LoginScreen(onDone: (_) {}));
+      expect(find.text('ใช้งานโดยไม่สมัครสมาชิก'), findsNothing);
+      expect(find.text('อุ่นใจได้\nแม้ไกลสัญญาณ'), findsNothing);
+      expect(find.byTooltip('เปลี่ยนเป็นโหมดมืด'), findsNothing);
+      expect(find.text('SOSBROO'), findsOneWidget);
+      final logo = tester.getRect(find.byType(BrandMark));
+      final name = tester.getRect(find.text('SOSBROO'));
+      expect(name.top, greaterThan(logo.bottom));
+      expect(logo.center.dx, closeTo(name.center.dx, 1));
+      expect(find.text('สมัครสมาชิก'), findsOneWidget);
+    },
+  );
+
+  testWidgets('profile forwards saved identity to its parent without logout', (
     tester,
   ) async {
-    AppUser? identity;
-    await pumpScreen(tester, LoginScreen(onDone: (user) => identity = user));
+    const member = AppUser(
+      id: 'profile-member',
+      firstName: 'A',
+      lastName: 'B',
+      isMember: true,
+    );
+    AppUser? forwarded;
+    await pumpScreen(
+      tester,
+      ProfileScreen(
+        me: member,
+        onLogout: () async {},
+        onUpdated: (user) => forwarded = user,
+      ),
+    );
     await tester.scrollUntilVisible(
-      find.text('ใช้งานโดยไม่สมัครสมาชิก'),
-      220,
+      find.text('จัดการบัญชี'),
+      180,
       scrollable: find.byType(Scrollable).first,
     );
+    await tester.tap(find.text('จัดการบัญชี'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('ใช้งานโดยไม่สมัครสมาชิก'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).first, 'นิดา');
-    await tester.enterText(find.byType(TextField).last, 'ใจดี');
-    await tester.ensureVisible(find.text('เริ่มใช้งานแบบไม่เป็นสมาชิก'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('เริ่มใช้งานแบบไม่เป็นสมาชิก'));
-    await tester.pumpAndSettle();
-    expect(identity?.firstName, 'นิดา');
-    expect(identity?.isMember, isFalse);
-    expect(find.text('เริ่มต้นโดยไม่สมัครสมาชิก'), findsNothing);
-    expect(tester.takeException(), isNull);
+    expect(find.text('รีโหลดข้อมูล'), findsNothing);
+    expect(find.byTooltip('รีเฟรชข้อมูลบัญชี'), findsOneWidget);
+    expect(
+      tester.getSize(find.widgetWithText(OutlinedButton, 'เปลี่ยนรูป')).height,
+      lessThanOrEqualTo(48),
+    );
+    await snapshot(tester, 'account_compact_v43');
+    tester
+        .widget<AccountSettingsScreen>(find.byType(AccountSettingsScreen))
+        .onUpdated(member.copyWith(firstName: 'Rescue', lastName: 'Test'));
+    await tester.pump();
+    expect(forwarded?.firstName, 'Rescue');
+    expect(find.text('Rescue Test', skipOffstage: false), findsWidgets);
+    await tester.pumpWidget(const SizedBox());
   });
 
   for (final mode in [ThemeMode.light, ThemeMode.dark]) {
@@ -251,7 +287,7 @@ void main() {
         ),
       );
       await snapshot(tester, 'home_$suffix');
-      await tester.tap(find.text('เปิดหน้า SOS'));
+      await tester.tap(find.text('เลือกเหตุ / เพิ่มรายละเอียด'));
       expect(opened, isTrue);
       expect(tester.takeException(), isNull);
     });
@@ -275,7 +311,7 @@ void main() {
       await tester.runAsync(() => uiController.setMode(mode));
       await pumpScreen(tester, const NearbyScreen(me: guest));
       expect(find.text('ทดสอบระยะ Nearby'), findsNothing);
-      expect(find.text('เชื่อมต่อใน 3 ขั้นตอน'), findsOneWidget);
+      expect(find.text('เชื่อมต่อใน 3 ขั้นตอน'), findsNothing);
       await snapshot(tester, 'nearby_$suffix');
       await tester.scrollUntilVisible(
         find.text('ยังไม่มีอุปกรณ์ใกล้เคียง'),
@@ -296,7 +332,7 @@ void main() {
         await snapshot(tester, 'sos_$suffix');
         await tester.tap(find.text('เปิด SOS · ขอความช่วยเหลือ'));
         await tester.pumpAndSettle();
-        expect(find.text('เปิด SOS หรือไม่?'), findsOneWidget);
+        expect(find.text('ยืนยันขอความช่วยเหลือ'), findsOneWidget);
         await snapshot(tester, 'sos_choices_$suffix');
         await tester.tap(find.text('ยกเลิก'));
         await tester.pumpAndSettle();
@@ -318,7 +354,7 @@ void main() {
       textScale: 1.5,
     );
     await tester.scrollUntilVisible(
-      find.text('ใช้งานโดยไม่สมัครสมาชิก'),
+      find.text('สมัครสมาชิก'),
       220,
       scrollable: find.byType(Scrollable).first,
     );
@@ -338,7 +374,7 @@ void main() {
       textScale: 1.5,
     );
     await tester.scrollUntilVisible(
-      find.text('ข้อความของคุณ'),
+      find.text('ข้อความ'),
       220,
       scrollable: find.byType(Scrollable).first,
     );
@@ -361,10 +397,10 @@ void main() {
       ),
     );
     for (final label in [
-      'เปิดหน้า SOS',
-      'คนใกล้เคียง',
-      'ข้อความของคุณ',
-      'หน่วยกู้ภัย',
+      'เลือกเหตุ / เพิ่มรายละเอียด',
+      'บุคคลใกล้เคียง',
+      'ข้อความ',
+      'สิทธิ์หน่วยกู้ภัย',
     ]) {
       await tester.ensureVisible(find.text(label));
       await tester.tap(find.text(label));
@@ -405,7 +441,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('เปิด SOS · ขอความช่วยเหลือ'));
       await tester.pumpAndSettle();
-      expect(find.text('เปิด SOS หรือไม่?'), findsOneWidget);
+      expect(find.text('ยืนยันขอความช่วยเหลือ'), findsOneWidget);
       await tester.tap(find.text('ยกเลิก'));
       await tester.pumpAndSettle();
       expect(await repo.latestActive(guest.id), isNull);
@@ -588,7 +624,8 @@ void main() {
     await tester.tap(find.text('ตำแหน่งของฉัน'));
     await tester.pumpAndSettle();
     expect(find.text('ส่งตำแหน่งของฉัน'), findsOneWidget);
-    expect(find.textContaining('อาจไม่ใช่ตำแหน่งปัจจุบัน'), findsOneWidget);
+    expect(find.textContaining('อาจไม่ใช่ตำแหน่งปัจจุบัน'), findsNothing);
+    expect(find.textContaining('เวลาพิกัด:'), findsOneWidget);
     await tester.tap(find.text('ส่งตำแหน่ง'));
     await tester.pumpAndSettle();
     await tester.runAsync(() async {
@@ -869,6 +906,12 @@ void main() {
             'data': {'active': true, 'revision': 1},
           }),
         );
+        mesh.connected.add('victim-endpoint');
+        mesh.identities['victim-endpoint'] = const NearbyPeer(
+          endpoint: 'victim-endpoint',
+          deviceId: 'victim',
+          name: 'Victim',
+        );
         mesh.inbox.add(
           MeshMessage({
             'kind': 'sos',
@@ -884,12 +927,28 @@ void main() {
         180,
         scrollable: find.byType(Scrollable).first,
       );
-      final card = tester.widget<Card>(
+      final card = tester.widget<AppCard>(
         find
-            .ancestor(of: find.text('Rescue Team'), matching: find.byType(Card))
+            .ancestor(
+              of: find.text('Rescue Team'),
+              matching: find.byType(AppCard),
+            )
             .first,
       );
-      expect(card.color, const Color(0xFF1859A9));
+      expect(card.backgroundColor, const Color(0xFF1859A9));
+      final sosCard = tester.widget<AppCard>(
+        find
+            .ancestor(of: find.text('Victim'), matching: find.byType(AppCard))
+            .first,
+      );
+      expect(sosCard.backgroundColor, AppColors.sos);
+      final sosTile = tester.widget<ListTile>(
+        find
+            .ancestor(of: find.text('Victim'), matching: find.byType(ListTile))
+            .first,
+      );
+      expect(sosTile.textColor, Colors.white);
+
       mesh.inbox.removeWhere((m) => m.kind == 'rescue');
       mesh.inbox.add(
         MeshMessage({
@@ -900,7 +959,16 @@ void main() {
       );
       mesh.notifyListeners();
       await tester.pumpAndSettle();
-      expect(find.text('เปิดโหมดกู้ภัย • แตะเพื่อแชท'), findsNothing);
+      final inactiveCard = tester.widget<AppCard>(
+        find
+            .ancestor(
+              of: find.text('Rescue Team'),
+              matching: find.byType(AppCard),
+            )
+            .first,
+      );
+      expect(inactiveCard.backgroundColor, isNot(const Color(0xFF1859A9)));
+      expect(find.text('Rescue Team'), findsOneWidget);
       await tester.scrollUntilVisible(
         find.text('SOS · Victim'),
         180,
@@ -949,6 +1017,8 @@ void main() {
 }
 
 class _TestChatLocation extends LocationService {
+  @override
+  Future<SavedLocation?> getQuickLocation() => getLatestLocation();
   @override
   Future<SavedLocation?> getLatestLocation() async => SavedLocation(
     latitude: 13.73,

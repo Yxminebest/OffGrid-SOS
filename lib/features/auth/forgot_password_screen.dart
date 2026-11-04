@@ -19,6 +19,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
   bool _busy = false;
   bool _sent = false;
+  bool _rateLimited = false;
+  String? _rateLimitNotice;
   int _cooldown = 0;
   Timer? _timer;
 
@@ -26,6 +28,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   void initState() {
     super.initState();
     _email = TextEditingController(text: widget.initialEmail.trim());
+    unawaited(_restoreCooldown());
   }
 
   @override
@@ -35,9 +38,26 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     super.dispose();
   }
 
-  void _startCooldown() {
+  Future<void> _restoreCooldown() async {
+    final seconds = await AuthService.passwordResetCooldownRemainingSeconds();
+    if (!mounted || seconds <= 0) return;
+    final wasRateLimited = await AuthService.passwordResetWasRateLimited();
+    if (!mounted) return;
+    setState(() {
+      _rateLimited = wasRateLimited;
+      if (wasRateLimited) {
+        _rateLimitNotice =
+            'ระบบจำกัดคำขอรีเซ็ตรหัสผ่านชั่วคราว กรุณารอให้ตัวนับหมดก่อนลองอีกครั้ง';
+      } else {
+        _sent = true;
+      }
+    });
+    _startCooldown(seconds);
+  }
+
+  void _startCooldown([int seconds = 60]) {
     _timer?.cancel();
-    setState(() => _cooldown = 60);
+    setState(() => _cooldown = seconds);
 
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
@@ -52,6 +72,16 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         setState(() => _cooldown -= 1);
       }
     });
+  }
+
+  String _formatCooldown(int seconds) {
+    if (seconds >= 3600) {
+      final hours = seconds ~/ 3600;
+      final minutes = (seconds % 3600) ~/ 60;
+      return minutes > 0 ? '$hours ชั่วโมง $minutes นาที' : '$hours ชั่วโมง';
+    }
+    if (seconds >= 60) return '${(seconds / 60).ceil()} นาที';
+    return '$seconds วินาที';
   }
 
   Future<void> _send() async {
@@ -69,10 +99,22 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       await AuthService.sendPasswordResetEmail(email);
 
       if (!mounted) return;
-      setState(() => _sent = true);
+      setState(() {
+        _sent = true;
+        _rateLimited = false;
+        _rateLimitNotice = null;
+      });
       _startCooldown();
     } on AuthServiceException catch (e) {
-      _show(e.message, error: true);
+      if (e.rateLimited && (e.retryAfterSeconds ?? 0) > 0) {
+        setState(() {
+          _rateLimited = true;
+          _rateLimitNotice = e.message;
+        });
+        _startCooldown(e.retryAfterSeconds!);
+      } else {
+        _show(e.message, error: true);
+      }
     } catch (_) {
       _show('ส่งคำขอรีเซ็ตรหัสผ่านไม่สำเร็จ กรุณาลองอีกครั้ง', error: true);
     } finally {
@@ -117,6 +159,33 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               style: TextStyle(color: context.colors.muted, height: 1.45),
             ),
             const SizedBox(height: 24),
+            if (_rateLimited) ...[
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: context.colors.pending.withValues(alpha: .10),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: context.colors.pending.withValues(alpha: .35),
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.info_outline, color: context.colors.pending),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        '${_rateLimitNotice ?? 'ระบบจำกัดคำขอชั่วคราว'} '
+                        '${_cooldown > 0 ? 'เหลือ ${_formatCooldown(_cooldown)}' : ''}',
+                        style: const TextStyle(height: 1.45),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+            ],
             TextField(
               controller: _email,
               enabled: !_busy,

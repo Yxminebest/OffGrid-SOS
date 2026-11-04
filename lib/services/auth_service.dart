@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
@@ -19,6 +20,10 @@ import 'offline_media_service.dart';
 
 class AuthService {
   static const FlutterSecureStorage _store = FlutterSecureStorage();
+  static const _passwordResetCooldownUntilKey =
+      'auth_password_reset_cooldown_until';
+  static const _passwordResetRateLimitedKey =
+      'auth_password_reset_rate_limited';
   static bool isClearing = false;
 
   static SupabaseClient get _supabase => Supabase.instance.client;
@@ -58,31 +63,6 @@ class AuthService {
     final id = const Uuid().v4();
     await _store.write(key: 'deviceId', value: id);
     return id;
-  }
-
-  static Future<AppUser> createGuest(String first, String last) async {
-    final firstName = first.trim();
-    final lastName = last.trim();
-
-    if (firstName.isEmpty || lastName.isEmpty) {
-      throw const AuthServiceException('กรุณากรอกชื่อจริงและนามสกุล');
-    }
-
-    final deviceId = await _getOrCreateDeviceId();
-    await _store.write(key: 'firstName', value: firstName);
-    await _store.write(key: 'lastName', value: lastName);
-    await _store.write(key: 'isMember', value: '0');
-    await _store.delete(key: 'email');
-    await _store.delete(key: 'supabaseUserId');
-    await _store.delete(key: 'role');
-
-    return AppUser(
-      id: deviceId,
-      firstName: firstName,
-      lastName: lastName,
-      isMember: false,
-      role: AppRole.guest,
-    );
   }
 
   static Future<PendingRegistration> registerMember({
@@ -222,12 +202,52 @@ class AuthService {
       throw const AuthServiceException('กรุณากรอกอีเมลให้ถูกต้อง');
     }
 
+    final remaining = await passwordResetCooldownRemainingSeconds();
+    if (remaining > 0) {
+      final wasRateLimited = await passwordResetWasRateLimited();
+      throw AuthServiceException(
+        wasRateLimited
+            ? 'ระบบจำกัดคำขอรีเซ็ตรหัสผ่านชั่วคราว กรุณารอให้ตัวนับหมดก่อนลองอีกครั้ง'
+            : 'ส่งคำขอแล้ว กรุณารอตัวนับให้หมดและตรวจ Inbox หรือ Spam ก่อนส่งซ้ำ',
+        retryAfterSeconds: remaining,
+        rateLimited: wasRateLimited,
+      );
+    }
+
     try {
       await _supabase.auth.resetPasswordForEmail(
         cleanEmail,
         redirectTo: SupabaseConfig.passwordRecoveryRedirectTo,
       );
+      await _savePasswordResetCooldown(const Duration(seconds: 60));
     } on AuthException catch (e) {
+      final code = (e.code ?? '').toLowerCase();
+      final rawMessage = e.message.toLowerCase();
+      final isEmailRateLimited = code == 'over_email_send_rate_limit';
+      final isRateLimited =
+          isEmailRateLimited ||
+          code == 'over_request_rate_limit' ||
+          code == 'rate_limit_exceeded' ||
+          e.statusCode == '429' ||
+          rawMessage.contains('rate limit') ||
+          rawMessage.contains('too many requests');
+
+      if (isRateLimited) {
+        // Supabase's built-in email provider has a much longer project quota;
+        // IP/request limits also need more than the normal 60-second resend gap.
+        final retryAfter = isEmailRateLimited ? 3600 : 300;
+        await _savePasswordResetCooldown(
+          Duration(seconds: retryAfter),
+          rateLimited: true,
+        );
+        throw AuthServiceException(
+          isEmailRateLimited
+              ? 'ระบบอีเมลส่งคำขอครบขีดจำกัดชั่วคราว กรุณารอประมาณ 1 ชั่วโมงก่อนลองอีกครั้ง'
+              : 'มีคำขอรีเซ็ตรหัสผ่านถี่เกินไป กรุณารอประมาณ 5 นาที แล้วลองส่งเพียงครั้งเดียว',
+          retryAfterSeconds: retryAfter,
+          rateLimited: true,
+        );
+      }
       throw AuthServiceException(_authMessage(e.message));
     } catch (e) {
       throw AuthServiceException(
@@ -236,6 +256,48 @@ class AuthService {
           fallback: 'ส่งคำขอรีเซ็ตรหัสผ่านไม่สำเร็จ กรุณาลองอีกครั้ง',
         ),
       );
+    }
+  }
+
+  static Future<int> passwordResetCooldownRemainingSeconds() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final until = prefs.getInt(_passwordResetCooldownUntilKey) ?? 0;
+      final remaining = ((until - DateTime.now().millisecondsSinceEpoch) / 1000)
+          .ceil();
+      if (remaining <= 0) {
+        await prefs.remove(_passwordResetCooldownUntilKey);
+        await prefs.remove(_passwordResetRateLimitedKey);
+        return 0;
+      }
+      return remaining;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  static Future<bool> passwordResetWasRateLimited() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool(_passwordResetRateLimitedKey) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<void> _savePasswordResetCooldown(
+    Duration duration, {
+    bool rateLimited = false,
+  }) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(
+        _passwordResetCooldownUntilKey,
+        DateTime.now().add(duration).millisecondsSinceEpoch,
+      );
+      await prefs.setBool(_passwordResetRateLimitedKey, rateLimited);
+    } catch (_) {
+      // Keep password recovery usable if local preferences are unavailable.
     }
   }
 
@@ -278,7 +340,7 @@ class AuthService {
   static Future<AppUser?> restoreIdentity() async {
     final local = await restoreLocalIdentity();
     if (local != null) {
-      if (!local.isMember || !SupabaseConfig.isConfigured) return local;
+      if (!SupabaseConfig.isConfigured) return local;
       final signedIn = _initializedSupabase?.auth.currentUser;
       if (signedIn == null || signedIn.id == local.id) return local;
       // Never attach another account's local history to the active cloud user.
@@ -299,25 +361,6 @@ class AuthService {
   static Future<AppUser?> restoreLocalIdentity() async {
     final isMember = await _store.read(key: 'isMember');
     if (isMember == '1') return _restoreCachedMember();
-    if (isMember == '0') {
-      final id = await _store.read(key: 'deviceId');
-      final first = await _store.read(key: 'firstName');
-      final last = await _store.read(key: 'lastName');
-
-      if (id != null &&
-          first != null &&
-          first.isNotEmpty &&
-          last != null &&
-          last.isNotEmpty) {
-        return AppUser(
-          id: id,
-          firstName: first,
-          lastName: last,
-          isMember: false,
-          role: AppRole.guest,
-        );
-      }
-    }
 
     return null;
   }
@@ -1037,8 +1080,14 @@ class AuthService {
 }
 
 class AuthServiceException implements Exception {
-  const AuthServiceException(this.message);
+  const AuthServiceException(
+    this.message, {
+    this.retryAfterSeconds,
+    this.rateLimited = false,
+  });
   final String message;
+  final int? retryAfterSeconds;
+  final bool rateLimited;
 
   @override
   String toString() => message;

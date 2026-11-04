@@ -172,7 +172,7 @@ class _OffGridSosAppState extends State<OffGridSosApp> {
     return ListenableBuilder(
       listenable: ThemeController.instance,
       builder: (context, child) => MaterialApp(
-        title: 'offgrid-sos',
+        title: 'SOSBROO',
         debugShowCheckedModeBanner: false,
         theme: buildTheme(),
         darkTheme: buildTheme(brightness: Brightness.dark),

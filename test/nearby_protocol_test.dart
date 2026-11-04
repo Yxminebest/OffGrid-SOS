@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'package:offgrid_sos/services/mesh_room.dart';
+import 'package:offgrid_sos/services/chat_action.dart';
 import 'support/mesh_issuer.dart';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -6,6 +9,7 @@ import 'package:sembast/sembast_memory.dart';
 import 'package:offgrid_sos/data/local/local_database.dart';
 import 'package:offgrid_sos/data/repositories/nearby_chat_repository.dart';
 import 'package:offgrid_sos/data/repositories/sos_repository.dart';
+import 'package:offgrid_sos/data/repositories/sos_response_repository.dart';
 import 'package:offgrid_sos/models/user.dart';
 import 'package:offgrid_sos/services/nearby_mesh_service.dart';
 import 'package:offgrid_sos/services/location_service.dart';
@@ -26,11 +30,13 @@ void main() {
   late Map<String, LocalDatabase> dbs;
   late List<Packet> queue;
   late List<Packet> history;
+  Completer<void>? stalledBroadcast;
   setUp(() async {
     nodes = {};
     dbs = {};
     queue = [];
     history = [];
+    stalledBroadcast = null;
     for (final user in [a, b, c]) {
       final database = await newDatabaseFactoryMemory().openDatabase(user.id);
       dbs[user.id] = LocalDatabase.withDatabase(database);
@@ -45,6 +51,11 @@ void main() {
           );
           queue.add(packet);
           history.add(packet);
+          if (user.id == 'a' &&
+              endpoint == 'b' &&
+              packet.data['kind'] == 'sos') {
+            await stalledBroadcast?.future;
+          }
         },
       );
       await nodes[user.id]!.initializeForUser(user);
@@ -86,6 +97,351 @@ void main() {
       await (await local.database).close();
     }
   });
+
+  test(
+    'public room reaches every node once through relay and rejects tampering',
+    () async {
+      await pair('a', 'b');
+      await pair('b', 'c');
+      await nodes['a']!.sendRoom('ข่าวจาก A');
+      await drain();
+      for (final id in ['a', 'b', 'c']) {
+        expect(
+          MeshRoom.project(await nodes[id]!.room.events(id)).single['text'],
+          'ข่าวจาก A',
+        );
+      }
+      final event = (await nodes['a']!.room.events('a')).single;
+      await nodes['c']!.handleEnvelope('b', event);
+      expect(await nodes['c']!.room.events('c'), hasLength(1));
+      await nodes['c']!.handleEnvelope('b', {
+        ...event,
+        'id': 'forged',
+        'data': {'text': 'ปลอม'},
+      });
+      expect(await nodes['c']!.room.events('c'), hasLength(1));
+    },
+  );
+
+  test(
+    'public room queues without links and replays edits and terminal deletes to late joiners',
+    () async {
+      await nodes['a']!.sendRoom('ข้อความแรก');
+      final original = (await nodes['a']!.room.events('a')).single;
+      await nodes['a']!.sendRoom(ChatAction.edit(original['id'], 'แก้แล้ว'));
+      await pair('a', 'b');
+      expect(
+        MeshRoom.project(await nodes['b']!.room.events('b')).single['text'],
+        'แก้แล้ว',
+      );
+      await nodes['b']!.sendRoom(ChatAction.delete(original['id']));
+      await drain();
+      expect(
+        MeshRoom.project(await nodes['a']!.room.events('a')),
+        hasLength(1),
+        reason: 'another author cannot delete A',
+      );
+      await nodes['a']!.sendRoom(ChatAction.retract(original['id']));
+      await nodes['a']!.sendRoom(ChatAction.delete(original['id']));
+      await drain();
+      await pair('b', 'c');
+      for (final id in ['a', 'b', 'c']) {
+        expect(MeshRoom.project(await nodes[id]!.room.events(id)), isEmpty);
+      }
+    },
+  );
+
+  test(
+    'public room inventory repairs a lost broadcast without reconnecting',
+    () async {
+      await pair('a', 'b');
+      await nodes['a']!.sendRoom('packet lost');
+      queue.clear();
+      expect(await nodes['b']!.room.events('b'), isEmpty);
+      final event = (await nodes['a']!.room.events('a')).single;
+      await nodes['b']!.handleEnvelope('a', {
+        'v': 1,
+        'id': 'inventory',
+        'kind': 'room_inventory',
+        'origin': nodes['a']!.deviceId,
+        'ttl': 0,
+        'data': {
+          'keys': ['${event['origin']}:${event['id']}'],
+        },
+      });
+      await drain();
+      expect(
+        MeshRoom.project(await nodes['b']!.room.events('b')).single['text'],
+        'packet lost',
+      );
+    },
+  );
+
+  test(
+    'one stalled peer does not delay SOS broadcast to other devices',
+    () async {
+      await pair('a', 'b');
+      await pair('a', 'c');
+      final record = await SosRepository(
+        local: dbs['a'],
+      ).create(user: a, message: 'urgent');
+      stalledBroadcast = Completer<void>();
+      final sending = nodes['a']!.publishSosRecord(record);
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      final reached = history.any(
+        (p) => p.from == 'a' && p.to == 'c' && p.data['kind'] == 'sos',
+      );
+      stalledBroadcast!.complete();
+      await sending;
+      await drain();
+      expect(reached, isTrue);
+    },
+  );
+
+  test(
+    'SOS durable receipt crosses relay and verified rescuer progress returns offline',
+    () async {
+      final rescuer = c.copyWith(role: AppRole.rescuer);
+      await nodes['c']!.initializeForUser(rescuer);
+      await grantTestAttestation(nodes['c']!, rescuer);
+      await pair('a', 'b');
+      await pair('b', 'c');
+      await nodes['c']!.setRescue(true);
+      await drain();
+      final repo = SosRepository(local: dbs['a']);
+      final record = await repo.create(user: a, message: 'need water');
+      await nodes['a']!.publishSosRecord(record);
+      await drain();
+      final source = nodes['a']!;
+      final responseRows = await source.sosResponses
+          .watch('a', source.deviceId, record.id)
+          .first;
+      expect(
+        responseRows
+            .where(
+              (r) =>
+                  ((r['envelope'] as Map)['data'] as Map)['category'] ==
+                  'receipt',
+            )
+            .length,
+        2,
+      );
+      expect(
+        await nodes['c']!.sosResponses.pending('c', source.deviceId),
+        isEmpty,
+      );
+      final sos = nodes['c']!.currentSosCases.single.data;
+      await nodes['c']!.updateRescueCase(sos, 'accepted');
+      await drain();
+      await nodes['c']!.updateRescueCase(sos, 'helping');
+      await drain();
+      final progress =
+          (await source.sosResponses
+                  .watch('a', source.deviceId, record.id)
+                  .first)
+              .where(
+                (r) =>
+                    ((r['envelope'] as Map)['data'] as Map)['category'] ==
+                    'progress',
+              )
+              .single;
+      expect(
+        ((progress['envelope'] as Map)['data'] as Map)['state'],
+        'helping',
+      );
+      await nodes['c']!.updateRescueCase(sos, 'completed');
+      await drain();
+      expect(
+        (await repo.findById(record.id))!.isActive,
+        isFalse,
+        reason: 'Verified rescue completion closes the same SOS case',
+      );
+      expect(source.mySos, isNull);
+      expect(nodes['b']!.currentSosCases, isEmpty);
+      expect(nodes['c']!.currentSosCases, isEmpty);
+      final endedRevision = (await repo.findById(record.id))!.revision;
+      await expectLater(
+        nodes['c']!.updateRescueCase(sos, 'accepted'),
+        throwsStateError,
+      );
+      final next = await repo.create(user: a, message: 'a new emergency');
+      await source.publishSosRecord(next);
+      await drain();
+      await SosResponseRepository.store
+          .record(
+            'c:${source.deviceId}:${record.id}:${nodes['c']!.deviceId}:progress',
+          )
+          .update(await dbs['c']!.database, {'delivery': 'pending'});
+      await nodes['c']!.retryFor(source.deviceId);
+      await drain();
+      expect(
+        await nodes['c']!.sosResponses.pending('c', source.deviceId),
+        isEmpty,
+      );
+      expect(source.activeSosId, next.id);
+      expect((await repo.findById(next.id))!.isActive, isTrue);
+      expect((await repo.findById(record.id))!.revision, endedRevision);
+      expect(
+        nodes['c']!.currentSosCases.single.data['data']['caseId'],
+        next.id,
+      );
+      await expectLater(
+        nodes['c']!.updateRescueCase(sos, 'helping'),
+        throwsStateError,
+      );
+    },
+  );
+
+  test(
+    'lost completion ACK retries without reopening SOS or incrementing its close revision',
+    () async {
+      final rescuer = c.copyWith(role: AppRole.rescuer);
+      await nodes['c']!.initializeForUser(rescuer);
+      await grantTestAttestation(nodes['c']!, rescuer);
+      await pair('a', 'c');
+      await nodes['c']!.setRescue(true);
+      await drain();
+      final repo = SosRepository(local: dbs['a']);
+      final record = await repo.create(user: a, message: 'help');
+      await nodes['a']!.publishSosRecord(record);
+      await drain();
+      final sos = nodes['c']!.currentSosCases.single.data;
+      await nodes['c']!.updateRescueCase(sos, 'accepted');
+      await drain();
+      await nodes['c']!.updateRescueCase(sos, 'helping');
+      await drain();
+      await nodes['c']!.updateRescueCase(sos, 'completed');
+      var count = 0;
+      // Simulate restart between saving the response and closing the SOS.
+      final savedCompletion = await nodes['c']!.sosResponses.stored(
+        'c',
+        nodes['a']!.deviceId,
+        record.id,
+        nodes['c']!.deviceId,
+        'progress',
+      );
+      await nodes['a']!.sosResponses.receive('a', savedCompletion!);
+      while (queue.isNotEmpty) {
+        expect(++count, lessThan(100));
+        final packet = queue.removeAt(0);
+        if (packet.from != 'a') {
+          await nodes[packet.to]!.handleEnvelope(packet.from, packet.data);
+        }
+      }
+      final closed = (await repo.findById(record.id))!;
+      expect(closed.isActive, isFalse);
+      expect(nodes['c']!.currentSosCases, isEmpty);
+      expect(
+        await nodes['c']!.sosResponses.pending('c', nodes['a']!.deviceId),
+        hasLength(1),
+      );
+      expect(
+        await nodes['c']!.sosResponses.completedCases('c'),
+        contains('${nodes['a']!.deviceId}:${record.id}'),
+      );
+      final restored = NearbyMeshService.withDatabase(
+        dbs['c']!,
+        verifyAttestation: verifyTestAttestation,
+      );
+      await restored.initializeForUser(rescuer);
+      restored.routes.addAll(nodes['c']!.routes);
+      restored.connected.addAll(nodes['c']!.connected);
+      expect(restored.peerForDevice(nodes['a']!.deviceId), isNotNull);
+      expect(restored.currentSosCases, isEmpty);
+      restored.dispose();
+      await nodes['c']!.retryFor(nodes['a']!.deviceId);
+      await drain();
+      expect((await repo.findById(record.id))!.revision, closed.revision);
+      expect(nodes['a']!.mySos, isNull);
+      expect(
+        await nodes['c']!.sosResponses.pending('c', nodes['a']!.deviceId),
+        isEmpty,
+      );
+    },
+  );
+
+  test(
+    'ordinary peer cannot accept SOS and unauthenticated receipt is ignored',
+    () async {
+      await pair('a', 'b');
+      final record = await SosRepository(
+        local: dbs['a'],
+      ).create(user: a, message: 'help');
+      await nodes['a']!.publishSosRecord(record);
+      await drain();
+      await expectLater(
+        nodes['b']!.updateRescueCase(
+          nodes['b']!.currentSosCases.single.data,
+          'accepted',
+        ),
+        throwsStateError,
+      );
+      await nodes['a']!.handleEnvelope('b', {
+        'v': 1,
+        'id': 'forged-response',
+        'kind': 'sos_response',
+        'origin': nodes['b']!.deviceId,
+        'ttl': 3,
+        'data': {
+          'target': nodes['a']!.deviceId,
+          'caseOrigin': nodes['a']!.deviceId,
+          'caseId': record.id,
+          'category': 'progress',
+          'state': 'completed',
+          'revision': record.revision,
+          'sequence': 999,
+        },
+      });
+      final rows = await nodes['a']!.sosResponses
+          .watch('a', nodes['a']!.deviceId, record.id)
+          .first;
+      expect(
+        rows.where(
+          (r) =>
+              ((r['envelope'] as Map)['data'] as Map)['category'] == 'progress',
+        ),
+        isEmpty,
+      );
+      expect(
+        (await SosRepository(local: dbs['a']).findById(record.id))!.isActive,
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'lost SOS receipt ACK retries from durable storage with same ID',
+    () async {
+      await pair('a', 'b');
+      final record = await SosRepository(
+        local: dbs['a'],
+      ).create(user: a, message: 'help');
+      await nodes['a']!.publishSosRecord(record);
+      while (queue.isNotEmpty) {
+        final p = queue.removeAt(0);
+        final clear = await clearPacket(p);
+        if (clear['kind'] == 'sos_response_ack') continue;
+        await nodes[p.to]!.handleEnvelope(p.from, p.data);
+      }
+      final pending = await nodes['b']!.sosResponses.pending(
+        'b',
+        nodes['a']!.deviceId,
+      );
+      expect(pending, hasLength(1));
+      await nodes['b']!.retryFor(nodes['a']!.deviceId);
+      await drain();
+      expect(
+        await nodes['b']!.sosResponses.pending('b', nodes['a']!.deviceId),
+        isEmpty,
+      );
+      expect(
+        await nodes['a']!.sosResponses
+            .watch('a', nodes['a']!.deviceId, record.id)
+            .first,
+        hasLength(1),
+      );
+    },
+  );
 
   test(
     'fresh SOS coordinates reach peer and refresh never reactivates cancelled case',
@@ -625,6 +981,120 @@ void main() {
       });
       expect(await nodes['b']!.chats.watchThreads('b').first, isEmpty);
       expect(history, isEmpty);
+    },
+  );
+  test(
+    'relay reachability suppresses a duplicate unconnected discovery row',
+    () async {
+      await pair('a', 'b');
+      await pair('b', 'c');
+      final mesh = nodes['a']!;
+      final remote = nodes['c']!;
+      mesh.discovered(
+        'c-discovery',
+        'OG10:N:${NearbyMeshService.discoveryHint(remote.deviceId)}:C Tester',
+      );
+      expect(mesh.peerForDevice(remote.deviceId)?.hops, 2);
+      expect(mesh.visiblePeers.containsKey('c-discovery'), isFalse);
+      expect(
+        mesh.reachablePeers.where((p) => p.deviceId == remote.deviceId),
+        hasLength(1),
+      );
+    },
+  );
+
+  test('a live alternate path survives loss of the direct link', () async {
+    await pair('a', 'b');
+    await pair('b', 'c');
+    await pair('a', 'c');
+    await nodes['b']!.refreshRoutes();
+    await drain();
+    final target = nodes['a']!.deviceId;
+    expect(nodes['c']!.peerForDevice(target)?.endpoint, 'a');
+    await nodes['c']!.handleEnvelope('a', {
+      'v': 1,
+      'id': 'lose-a',
+      'kind': 'goodbye',
+      'origin': target,
+      'ttl': 0,
+      'data': <String, dynamic>{},
+    });
+    expect(nodes['c']!.peerForDevice(target)?.endpoint, 'b');
+    await nodes['a']!.handleEnvelope('c', {
+      'v': 1,
+      'id': 'lose-c',
+      'kind': 'goodbye',
+      'origin': nodes['c']!.deviceId,
+      'ttl': 0,
+      'data': <String, dynamic>{},
+    });
+    await Future<void>.delayed(const Duration(milliseconds: 15));
+    await drain();
+    await nodes['c']!.sendDirect(target: target, text: 'through backup');
+    await drain();
+    final rows = await nodes['a']!.chats
+        .watchMessages('a', nodes['c']!.deviceId)
+        .first;
+    expect((rows.single['envelope'] as Map)['data']['text'], 'through backup');
+  });
+
+  test(
+    'route refresh repairs expired relay paths without restarting radios',
+    () async {
+      await pair('a', 'b');
+      await pair('b', 'c');
+      final target = nodes['c']!.deviceId;
+      nodes['a']!.routes[target]!.expires = DateTime.now().subtract(
+        const Duration(seconds: 1),
+      );
+      expect(nodes['a']!.peerForDevice(target), isNull);
+      await nodes['b']!.refreshRoutes();
+      await drain();
+      expect(nodes['a']!.peerForDevice(target)?.hops, 2);
+      expect(nodes['a']!.connected, contains('b'));
+    },
+  );
+
+  test(
+    'automatic pairing elects one initiator with a bounded passive fallback',
+    () {
+      expect(NearbyMeshService.initiatesAutomatically('a', 'b'), isTrue);
+      expect(NearbyMeshService.initiatesAutomatically('b', 'a'), isFalse);
+      expect(
+        NearbyMeshService.initiatesAutomatically(
+          'b',
+          'a',
+          waited: const Duration(seconds: 5),
+        ),
+        isTrue,
+      );
+    },
+  );
+  test(
+    'losing both links to A withdraws alternates without a routing loop',
+    () async {
+      await pair('a', 'b');
+      await pair('b', 'c');
+      await pair('a', 'c');
+      await nodes['b']!.refreshRoutes();
+      await nodes['c']!.refreshRoutes();
+      await drain();
+      final target = nodes['a']!.deviceId;
+      for (final id in ['b', 'c']) {
+        await nodes[id]!.handleEnvelope('a', {
+          'v': 1,
+          'id': 'lose-a-$id',
+          'kind': 'goodbye',
+          'origin': target,
+          'ttl': 0,
+          'data': <String, dynamic>{},
+        });
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await drain();
+      expect(nodes['b']!.peerForDevice(target), isNull);
+      expect(nodes['c']!.peerForDevice(target), isNull);
+      expect(nodes['b']!.peerForDevice(nodes['c']!.deviceId), isNotNull);
     },
   );
 }

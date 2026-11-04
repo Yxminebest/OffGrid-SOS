@@ -1,0 +1,16 @@
+/// Common layout values, like shared variables in a stylesheet.
+/// Screens still own layout choices that are specific to their content.
+abstract final class AppMetrics {
+  static const fontFamily = {{root.font-family}};
+  static const cardRadius = {{root.card-radius}};
+  static const cardPadding = {{root.card-padding}};
+  static const controlRadius = {{root.control-radius}};
+  static const chipRadius = {{root.chip-radius}};
+  static const dialogRadius = {{root.dialog-radius}};
+  static const sheetRadius = {{root.sheet-radius}};
+  static const minimumTapSize = {{root.minimum-tap-size}};
+  static const buttonHeight = {{root.button-height}};
+  static const compactButtonHeight = {{root.compact-button-height}};
+  static const compactButtonPadding = {{root.compact-button-padding}};
+  static const accountAvatarSize = {{root.account-avatar-size}};
+}

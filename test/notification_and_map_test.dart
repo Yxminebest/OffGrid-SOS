@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:async';
+import 'dart:ui' as ui;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:offgrid_sos/widgets/location_map_screen.dart';
 import 'package:flutter/foundation.dart';
@@ -10,6 +12,128 @@ import 'package:offgrid_sos/widgets/location_actions.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'chat notification carries owner, thread and transport and tap is consumed once',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final calls = <MethodCall>[];
+      Map<String, String>? pending;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(AppNotifications.channel, (call) async {
+            calls.add(call);
+            if (call.method == 'takeChatTap') {
+              final tap = pending;
+              pending = null;
+              return tap;
+            }
+            return null;
+          });
+      final notifications = AppNotifications();
+      for (final transport in ['nearby', 'cloud']) {
+        await notifications.show(
+          id: 'message-$transport',
+          title: 'B',
+          text: 'hello',
+          owner: 'account',
+          thread: 'room-$transport',
+          transport: transport,
+        );
+        final arguments = calls.last.arguments as Map;
+        expect(arguments['owner'], 'account');
+        expect(arguments['thread'], 'room-$transport');
+        expect(arguments['transport'], transport);
+        pending = {
+          'owner': 'account',
+          'thread': 'room-$transport',
+          'transport': transport,
+        };
+        expect(
+          (await notifications.takeChatTap())?['thread'],
+          'room-$transport',
+        );
+        expect(await notifications.takeChatTap(), isNull);
+      }
+      pending = {'owner': 'account', 'thread': 'bad', 'transport': 'unknown'};
+      expect(await notifications.takeChatTap(), isNull);
+    },
+  );
+  test(
+    'foreground notification tap wakes Flutter without a lifecycle resume',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final notifications = AppNotifications();
+      notifications.listenForTaps();
+      final response = Completer<void>();
+      ui.channelBuffers.push(
+        AppNotifications.channel.name,
+        const StandardMethodCodec().encodeMethodCall(
+          const MethodCall('notificationTap'),
+        ),
+        (_) => response.complete(),
+      );
+      await response.future;
+      expect(notifications.taps.value, 1);
+      AppNotifications.channel.setMethodCallHandler(null);
+    },
+  );
+  test(
+    'notification sound persists via native settings independently of background receiving',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      var savedSound = true;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(AppNotifications.channel, (call) async {
+            if (call.method == 'setNotificationSound') {
+              savedSound = (call.arguments as Map)['enabled'] as bool;
+              return savedSound;
+            }
+            if (call.method == 'notificationSound') return savedSound;
+            if (call.method == 'notificationsEnabled') return true;
+            return null;
+          });
+      final notifications = AppNotifications();
+      notifications.background.value = true;
+      await notifications.setSound(false);
+      expect(notifications.sound.value, isFalse);
+      expect(notifications.background.value, isTrue);
+      final reopened = AppNotifications();
+      await reopened.refresh();
+      expect(reopened.sound.value, isFalse);
+      await reopened.setSound(true);
+      expect(reopened.sound.value, isTrue);
+    },
+  );
+  test(
+    'SOS notification carries device and account, tap is consumed once',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final calls = <MethodCall>[];
+      var taken = false;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(AppNotifications.channel, (call) async {
+            calls.add(call);
+            if (call.method == 'takeSosTap' && !taken) {
+              taken = true;
+              return {'device': 'peer-device', 'owner': 'my-account'};
+            }
+            return null;
+          });
+      await AppNotifications.instance.show(
+        id: 'sos:peer:case',
+        title: 'SOS',
+        text: 'ต้องการยา',
+        sosDevice: 'peer-device',
+        owner: 'my-account',
+      );
+      expect((calls.first.arguments as Map)['owner'], 'my-account');
+      expect((calls.first.arguments as Map)['sosDevice'], 'peer-device');
+      expect(await AppNotifications.instance.takeSosTap(), {
+        'device': 'peer-device',
+        'owner': 'my-account',
+      });
+      expect(await AppNotifications.instance.takeSosTap(), isNull);
+    },
+  );
   tearDown(() {
     debugDefaultTargetPlatformOverride = null;
     AppNotifications.instance.foreground = true;

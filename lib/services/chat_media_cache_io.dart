@@ -126,7 +126,6 @@ class ChatMediaCache {
         total += bytes.length;
         if (total > maxBytes) throw StateError('ไฟล์ใหญ่เกินกำหนด');
         sink.add(bytes);
-        await sink.flush();
       }
       await sink.close();
       sink = null;

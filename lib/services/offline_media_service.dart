@@ -61,6 +61,7 @@ class OfflineMediaService {
           filter: Filter.and([
             Filter.equals('owner_local_id', user.id),
             Filter.equals('is_deleted', false),
+            Filter.inList('message_type', ['image', 'video']),
           ]),
           sortOrders: [SortOrder('created_at', false)],
           limit: 200,

@@ -43,16 +43,15 @@ void main() {
     },
   );
 
-  test(
-    'first-time guest creation and reopening require no cloud session',
-    () async {
-      final created = await AuthService.createGuest('Offline', 'Guest');
-      final restored = await AuthService.restoreIdentity();
-      expect(restored!.id, created.id);
-      expect(restored.isMember, isFalse);
-      expect(restored.fullName, 'Offline Guest');
-    },
-  );
+  test('retired guest cache cannot restore an app session', () async {
+    FlutterSecureStorage.setMockInitialValues({
+      'isMember': '0',
+      'deviceId': 'old-device',
+      'firstName': 'Old',
+      'lastName': 'Visitor',
+    });
+    expect(await AuthService.restoreLocalIdentity(), isNull);
+  });
 
   test(
     'removed identity marker prevents old cached fields from logging in again',

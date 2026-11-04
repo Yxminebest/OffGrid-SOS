@@ -1,0 +1,61 @@
+/* SOSBROO shared style source. Run dart run tool/generate_styles.dart after editing. */
+/* These variables generate native Flutter colors and dimensions at build time. */
+:root {
+  --color-brand: #F4C84B;
+  --color-brand-ink: #30250D;
+  --color-rescue-strong: #1859A9;
+  --color-map-pin: #C62828;
+  --color-on-primary-dark: #33280C;
+  --color-error-dark: #FFA7AE;
+  --color-error-surface-dark: #45262F;
+  --color-error-surface-light: #FFEDF0;
+  --color-on-error-dark: #FFC4CA;
+  --color-on-error-light: #962633;
+  --color-snackbar-dark: #50452C;
+  --color-snackbar-light: #3B321C;
+  --color-snackbar-action: #FFE29A;
+  --color-sos: #C93643;
+  --color-error: var(--color-sos);
+  --color-rescue: #316FB8;
+  --color-info: #805B00;
+  --color-success: #785B13;
+  --color-pending: #99601B;
+  --font-family: 'Roboto';
+  --card-radius: 22.0px;
+  --card-padding: 16.0px;
+  --control-radius: 16.0px;
+  --chip-radius: 12.0px;
+  --dialog-radius: 24.0px;
+  --sheet-radius: 28.0px;
+  --minimum-tap-size: 48.0px;
+  --button-height: 54.0px;
+  --compact-button-height: 48px;
+  --compact-button-padding: 12px;
+  --account-avatar-size: 64px;
+}
+
+[data-theme="light"] {
+  --background: #FFFBF0;
+  --surface: #FFFFFF;
+  --surface-soft: #FFF1C2;
+  --border: #E5DDC5;
+  --text: #302A1D;
+  --muted: #71654F;
+  --info: var(--color-info);
+  --rescue: var(--color-rescue);
+  --success: var(--color-success);
+  --pending: var(--color-pending);
+}
+
+[data-theme="dark"] {
+  --background: #191710;
+  --surface: #242016;
+  --surface-soft: #322B19;
+  --border: #51462B;
+  --text: #FFF6DE;
+  --muted: #C3B796;
+  --info: #F3CA55;
+  --rescue: #92BDF3;
+  --success: #E7CA76;
+  --pending: #F2C078;
+}

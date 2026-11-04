@@ -1,0 +1,7 @@
+# Copy to android/key.properties on your own computer only.
+# Never commit actual passwords or private keystores.
+# storeFile is resolved relative to the android directory; an absolute path works too.
+storeFile=C:/PRIVATE/upload-keystore.jks
+storePassword=REPLACE_LOCALLY
+keyAlias=upload
+keyPassword=REPLACE_LOCALLY

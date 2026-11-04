@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../app/theme.dart';
 import '../../models/user.dart';
@@ -44,12 +43,17 @@ class _UnifiedConversationScreenState extends State<UnifiedConversationScreen> {
   StreamSubscription<List<Map<String, dynamic>>>? _cloud;
   String? _subscribed;
   bool busy = false, _reading = false;
+  ChatItem? _replying;
+  List<ChatItem> _visibleMessages = const [];
+  final _notificationToken = Object();
   @override
   void initState() {
     super.initState();
     chat.start(widget.me);
     chat.mesh.addListener(_changed);
     NetworkService.instance.online.addListener(_changed);
+    unawaited(NetworkService.instance.hasConnection);
+    AppNotifications.instance.activeRoomToken = _notificationToken;
     AppNotifications.instance.activeThread =
         contact.device ?? contact.conversation;
     unawaited(chat.rememberPeers(widget.me.id));
@@ -95,8 +99,14 @@ class _UnifiedConversationScreenState extends State<UnifiedConversationScreen> {
   void dispose() {
     chat.mesh.removeListener(_changed);
     NetworkService.instance.online.removeListener(_changed);
-    AppNotifications.instance.activeThread = null;
-    AppNotifications.instance.activeThreadAliases.clear();
+    if (identical(
+      AppNotifications.instance.activeRoomToken,
+      _notificationToken,
+    )) {
+      AppNotifications.instance.activeRoomToken = null;
+      AppNotifications.instance.activeThread = null;
+      AppNotifications.instance.activeThreadAliases.clear();
+    }
     unawaited(_cloud?.cancel());
     input.dispose();
     super.dispose();
@@ -117,6 +127,8 @@ class _UnifiedConversationScreenState extends State<UnifiedConversationScreen> {
       await action();
     } on ArgumentError catch (e) {
       _notice(e.message?.toString() ?? 'ข้อมูลที่ส่งไม่ถูกต้อง');
+    } on StateError catch (e) {
+      _notice(e.message.toString());
     } catch (_) {
       _notice('บันทึกไม่สำเร็จ กรุณาตรวจสิทธิ์และพื้นที่ว่าง แล้วลองอีกครั้ง');
     } finally {
@@ -127,12 +139,130 @@ class _UnifiedConversationScreenState extends State<UnifiedConversationScreen> {
   Future<void> _send() => _action(() async {
     final text = input.text.trim();
     if (text.isEmpty) return;
-    await chat.send(widget.me, contact, text: text, caseId: widget.caseId);
-    if (mounted) input.clear();
+    await chat.send(
+      widget.me,
+      contact,
+      text: text,
+      caseId: widget.caseId,
+      replyToId: _replying?.id,
+    );
+    if (mounted) {
+      input.clear();
+      setState(() => _replying = null);
+    }
   });
+  Future<void> _messageActions(ChatItem message) async {
+    if (busy) return;
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.undo),
+              title: const Text('ยกเลิกส่งข้อความ'),
+              enabled: message.mine && !message.retracted,
+              onTap: message.mine && !message.retracted
+                  ? () => Navigator.pop(ctx, 'retract')
+                  : null,
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('ลบข้อความ'),
+              enabled: message.mine,
+              onTap: message.mine ? () => Navigator.pop(ctx, 'delete') : null,
+            ),
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('แก้ไขข้อความ'),
+              enabled: message.mine && !message.retracted,
+              onTap: message.mine && !message.retracted
+                  ? () => Navigator.pop(ctx, 'edit')
+                  : null,
+            ),
+            ListTile(
+              leading: const Icon(Icons.reply),
+              title: const Text('ตอบกลับ'),
+              enabled: !message.retracted,
+              onTap: !message.retracted
+                  ? () => Navigator.pop(ctx, 'reply')
+                  : null,
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || choice == null) return;
+    if (choice == 'delete') {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('ลบข้อความจากทุกเครื่อง?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('กลับ'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('ลบข้อความ'),
+            ),
+          ],
+        ),
+      );
+      if (confirm == true && mounted) {
+        await _action(() => chat.deleteMessage(widget.me, contact, message.id));
+        if (mounted && _replying?.id == message.id) {
+          setState(() => _replying = null);
+        }
+      }
+    } else if (choice == 'reply') {
+      setState(() => _replying = message);
+    } else if (choice == 'edit') {
+      final edited = await showDialog<String>(
+        context: context,
+        builder: (_) => _EditMessageDialog(initialText: message.text),
+      );
+      if (edited != null && mounted) {
+        await _action(
+          () =>
+              chat.changeMessage(widget.me, contact, message.id, text: edited),
+        );
+      }
+    } else if (choice == 'retract') {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('ยกเลิกส่งข้อความนี้?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('กลับ'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('ยกเลิกส่ง'),
+            ),
+          ],
+        ),
+      );
+      if (confirm == true && mounted) {
+        await _action(
+          () =>
+              chat.changeMessage(widget.me, contact, message.id, retract: true),
+        );
+        if (mounted && _replying?.id == message.id) {
+          setState(() => _replying = null);
+        }
+      }
+    }
+  }
+
   Future<void> _attach(String kind) => _action(() async {
     if (kind == 'location') {
-      final point = await widget.gps.getLatestLocation();
+      final point = await widget.gps.getQuickLocation();
       if (!mounted) return;
       if (point == null) {
         _notice('ยังไม่พบพิกัด เปิดตำแหน่งและลองใหม่ในที่โล่ง');
@@ -143,7 +273,7 @@ class _UnifiedConversationScreenState extends State<UnifiedConversationScreen> {
         builder: (ctx) => AlertDialog(
           title: const Text('ส่งตำแหน่งของฉัน'),
           content: Text(
-            '${point.latitude.toStringAsFixed(6)}, ${point.longitude.toStringAsFixed(6)}\n${point.qualityDescription}\n${point.isLastKnown ? 'พิกัดเก่า อาจไม่ใช่ตำแหน่งปัจจุบัน' : 'เวลาพิกัด: ${LocationActions.recordedAt(point.recordedAt)}'}',
+            '${point.latitude.toStringAsFixed(6)}, ${point.longitude.toStringAsFixed(6)}\n${point.qualityDescription}\nเวลาพิกัด: ${LocationActions.recordedAt(point.recordedAt)}',
           ),
           actions: [
             TextButton(
@@ -288,19 +418,38 @@ class _UnifiedConversationScreenState extends State<UnifiedConversationScreen> {
                 ? null
                 : chat.mesh.peerForDevice(contact.device!))
           : chat.mesh.peerForUser(contact.user!);
-      final status = peer != null
-          ? (chat.mesh.isPeerRescueActive(peer.deviceId)
-                ? 'หน่วยกู้ภัย · เชื่อมต่อแล้ว'
-                : 'บุคคลใกล้เคียง · เชื่อมต่อแล้ว')
-          : widget.me.isMember && contact.user != null && chat.online()
-          ? 'ส่งผ่านอินเทอร์เน็ต · ประวัติเก็บในเครื่อง'
-          : 'ออฟไลน์ · บันทึกข้อความรอส่งในเครื่อง';
+      final status = UnifiedChatService.deliveryLabel(
+        nearby: peer != null,
+        cloud: chat.online(),
+      );
       final list = entry?.messages ?? [];
+      _visibleMessages = list;
+      final receiving = chat.mesh.media.progress.values
+          .where(
+            (p) =>
+                p.incoming &&
+                p.fraction < 1 &&
+                (p.peer == contact.device || p.peer == peer?.deviceId),
+          )
+          .toList();
       return Scaffold(
         appBar: AppBar(
           toolbarHeight: MediaQuery.textScalerOf(
             context,
           ).scale(64).clamp(76, 240),
+          actions: [
+            if (peer != null && chat.mesh.isPeerRescueActive(peer.deviceId))
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: Tooltip(
+                  message: 'หน่วยกู้ภัยกำลังปฏิบัติหน้าที่',
+                  child: Icon(
+                    Icons.health_and_safety_rounded,
+                    color: Colors.blue,
+                  ),
+                ),
+              ),
+          ],
           title: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -322,26 +471,32 @@ class _UnifiedConversationScreenState extends State<UnifiedConversationScreen> {
                   padding: EdgeInsets.all(12),
                   child: Text('อ่านประวัติไม่ได้ ลองเปิดห้องนี้อีกครั้ง'),
                 ),
-              for (final transfer in chat.mesh.media.progress.values.where(
-                (p) =>
-                    p.incoming &&
-                    p.fraction < 1 &&
-                    (p.peer == contact.device || p.peer == peer?.deviceId),
-              ))
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'กำลังรับไฟล์ ${(transfer.fraction * 100).round()}%',
-                        style: const TextStyle(fontSize: 12),
+              SizedBox(
+                height: MediaQuery.textScalerOf(context).scale(16) + 16,
+                child: receiving.isEmpty && !busy
+                    ? const SizedBox.shrink()
+                    : Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              receiving.isEmpty
+                                  ? 'กำลังเตรียม…'
+                                  : 'กำลังรับไฟล์ ${(receiving.first.fraction * 100).round()}%'
+                                        '${receiving.length > 1 ? ' · ${receiving.length} ไฟล์' : ''}',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            const SizedBox(height: 4),
+                            LinearProgressIndicator(
+                              value: receiving.isEmpty
+                                  ? 0
+                                  : receiving.first.fraction,
+                            ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(height: 4),
-                      LinearProgressIndicator(value: transfer.fraction),
-                    ],
-                  ),
-                ),
+              ),
               Expanded(
                 child: list.isEmpty
                     ? Center(
@@ -358,12 +513,29 @@ class _UnifiedConversationScreenState extends State<UnifiedConversationScreen> {
                             _bubble(list[list.length - index - 1]),
                       ),
               ),
-              if (busy)
-                const Padding(
-                  padding: EdgeInsets.all(6),
-                  child: Text(
-                    'กำลังเตรียมไฟล์หรือตำแหน่ง…',
-                    style: TextStyle(fontSize: 12),
+              if (_replying != null)
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16),
+                  decoration: BoxDecoration(
+                    color: context.colors.surfaceSoft,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.reply),
+                    title: Text(
+                      'ตอบกลับ ${_replying!.mine ? 'ตัวเอง' : contact.name}',
+                    ),
+                    subtitle: Text(
+                      _replying!.preview,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: IconButton(
+                      tooltip: 'ยกเลิกการตอบกลับ',
+                      icon: const Icon(Icons.close),
+                      onPressed: () => setState(() => _replying = null),
+                    ),
                   ),
                 ),
               Padding(
@@ -411,7 +583,9 @@ class _UnifiedConversationScreenState extends State<UnifiedConversationScreen> {
 
   Widget _bubble(ChatItem m) {
     final media = m.type == 'image' || m.type == 'video';
-    final transfer = chat.mesh.media.progress[m.id];
+    final transfer = m.status == 'synced' || m.status == 'delivered_synced'
+        ? null
+        : chat.mesh.media.progress[m.id];
     return Align(
       alignment: m.mine ? Alignment.centerRight : Alignment.centerLeft,
       child: ConstrainedBox(
@@ -428,13 +602,43 @@ class _UnifiedConversationScreenState extends State<UnifiedConversationScreen> {
             ),
             child: InkWell(
               borderRadius: BorderRadius.circular(20),
-              onLongPress: () => Clipboard.setData(ClipboardData(text: m.text)),
+              onLongPress: () => _messageActions(m),
               child: Padding(
                 padding: EdgeInsets.all(media ? 8 : 14),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    if (m.replyToId != null) ...[
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          border: Border(
+                            left: BorderSide(
+                              color: context.colors.muted,
+                              width: 3,
+                            ),
+                          ),
+                          color: context.colors.surface,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          _visibleMessages
+                                  .where((item) => item.id == m.replyToId)
+                                  .firstOrNull
+                                  ?.preview ??
+                              'ข้อความก่อนหน้า',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: context.colors.muted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
                     if (media)
                       _UnifiedMedia(
                         key: ValueKey('media:${m.id}'),
@@ -470,7 +674,7 @@ class _UnifiedConversationScreenState extends State<UnifiedConversationScreen> {
                         const Text(
                           'พิกัดเก่า อาจไม่ใช่ตำแหน่งปัจจุบัน',
                           style: TextStyle(
-                            color: Color(0xFF99601B),
+                            color: AppColors.pending,
                             fontSize: 12,
                           ),
                         ),
@@ -494,9 +698,31 @@ class _UnifiedConversationScreenState extends State<UnifiedConversationScreen> {
                         accuracy: m.accuracy,
                       ),
                     ] else if (!media)
-                      SelectableText(
+                      Text(
+                        m.text,
+                        style: TextStyle(
+                          fontSize: 16,
+                          height: 1.5,
+                          fontStyle: m.retracted
+                              ? FontStyle.italic
+                              : FontStyle.normal,
+                          color: m.retracted ? context.colors.muted : null,
+                        ),
+                      ),
+                    if (m.edited && m.type != 'text') ...[
+                      const SizedBox(height: 8),
+                      Text(
                         m.text,
                         style: const TextStyle(fontSize: 16, height: 1.5),
+                      ),
+                    ],
+                    if (m.edited)
+                      Text(
+                        'แก้ไขแล้ว',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: context.colors.muted,
+                        ),
                       ),
                     if (transfer != null && transfer.fraction < 1) ...[
                       const SizedBox(height: 8),
@@ -512,9 +738,9 @@ class _UnifiedConversationScreenState extends State<UnifiedConversationScreen> {
                     Text(
                       '${m.at.toLocal().hour.toString().padLeft(2, '0')}:${m.at.toLocal().minute.toString().padLeft(2, '0')}${m.mine ? ' · ${switch (m.status) {
                               'delivered' => 'รับถึงเครื่องแล้ว',
-                              'delivered_synced' => 'รับถึงเครื่องแล้ว · ซิงก์แล้ว',
+                              'delivered_synced' => 'ส่งแล้ว · ซิงก์แล้ว',
                               'synced' => 'ซิงก์แล้ว',
-                              'sent' => 'ส่งแล้ว · รอยืนยันรับ',
+                              'sent' => 'กำลังส่ง · รอผู้รับยืนยัน',
                               'error' => 'รอส่งใหม่',
                               _ => 'ค้างส่ง',
                             }}' : ''}',
@@ -617,5 +843,47 @@ class _UnifiedMediaState extends State<_UnifiedMedia> {
         ),
       );
     },
+  );
+}
+
+class _EditMessageDialog extends StatefulWidget {
+  const _EditMessageDialog({required this.initialText});
+  final String initialText;
+  @override
+  State<_EditMessageDialog> createState() => _EditMessageDialogState();
+}
+
+class _EditMessageDialogState extends State<_EditMessageDialog> {
+  late final controller = TextEditingController(text: widget.initialText);
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('แก้ไขข้อความ'),
+    content: TextField(
+      controller: controller,
+      autofocus: true,
+      minLines: 1,
+      maxLines: 5,
+      maxLength: 4000,
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('ยกเลิก'),
+      ),
+      FilledButton(
+        onPressed: () {
+          if (controller.text.trim().isNotEmpty) {
+            Navigator.pop(context, controller.text.trim());
+          }
+        },
+        child: const Text('บันทึก'),
+      ),
+    ],
   );
 }

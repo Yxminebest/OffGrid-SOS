@@ -1,4 +1,9 @@
+import '../data/repositories/sos_response_repository.dart';
+import 'radio_send_queue.dart';
 import 'dart:async';
+import 'chat_action.dart';
+import 'mesh_room.dart';
+import 'sync_service.dart';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
@@ -119,6 +124,72 @@ class NearbyMeshService extends ChangeNotifier {
     },
   );
   final routes = <String, MeshRoute>{};
+  final _routeCandidates = <String, Map<String, MeshRoute>>{};
+  final _retryingTargets = <String>{};
+  final _connectingSince = <String, DateTime>{};
+  final _passiveSince = <String, DateTime>{};
+  final _bluetoothReconnect = <String>{};
+
+  /// One automatic initiator per stable device pair avoids crossed requests.
+  static bool initiatesAutomatically(
+    String local,
+    String remote, {
+    Duration waited = Duration.zero,
+  }) =>
+      local.isEmpty ||
+      remote.isEmpty ||
+      discoveryHint(local).compareTo(remote) < 0 ||
+      // A short deterministic fallback keeps the two phones from racing while
+      // avoiding the long delay users experienced when the preferred initiator
+      // was slow to receive the discovery callback.
+      waited >= const Duration(seconds: 5);
+
+  Set<String> _removeRoutes(bool Function(String, MeshRoute) invalid) {
+    final affected = <String>{};
+    for (final entry in _routeCandidates.entries.toList()) {
+      entry.value.removeWhere((_, route) {
+        final remove = invalid(entry.key, route);
+        if (remove) affected.add(entry.key);
+        return remove;
+      });
+      _selectRoute(entry.key);
+    }
+    // Also handle legacy/test routes installed without a candidate table.
+    for (final entry in routes.entries.toList()) {
+      if (!_routeCandidates.containsKey(entry.key) &&
+          invalid(entry.key, entry.value)) {
+        routes.remove(entry.key);
+        affected.add(entry.key);
+      }
+    }
+    return affected;
+  }
+
+  void _selectRoute(String target) {
+    final candidates = _routeCandidates[target];
+    if (candidates == null) return;
+    candidates.removeWhere(
+      (_, r) =>
+          !connected.contains(r.via) || r.expires.isBefore(DateTime.now()),
+    );
+    if (candidates.isEmpty) {
+      _routeCandidates.remove(target);
+      routes.remove(target);
+      return;
+    }
+    final old = routes[target];
+    final choices = candidates.values.toList()
+      ..sort((a, b) {
+        if (identical(a, b)) return 0;
+        final distance = a.hops.compareTo(b.hops);
+        if (distance != 0) return distance;
+        if (a.via == old?.via) return -1;
+        if (b.via == old?.via) return 1;
+        return a.via.compareTo(b.via);
+      });
+    routes[target] = choices.first;
+  }
+
   final _routeSeen = <String, int>{};
   DateTime _lastAdvertised = DateTime.fromMillisecondsSinceEpoch(0);
   bool _canRescue = false;
@@ -168,7 +239,7 @@ class NearbyMeshService extends ChangeNotifier {
     final owner = _ownerId!;
     final generation = _sessionGeneration;
     _refreshingAttestation = true;
-    _nextAttestation = DateTime.now().add(const Duration(minutes: 5));
+    _nextAttestation = DateTime.now().add(const Duration(seconds: 20));
     try {
       final client = Supabase.instance.client;
       if (client.auth.currentUser?.id != owner) return;
@@ -201,6 +272,55 @@ class NearbyMeshService extends ChangeNotifier {
 
   int _rescueRevision = 0;
   late final chats = NearbyChatRepository(local: _local);
+  late final room = MeshRoom(_local);
+
+  String _roomKey(Map<String, dynamic> event) =>
+      '${event['origin']}:${event['id']}';
+
+  Future<void> _syncRoom(String endpoint) async {
+    final owner = _ownerId;
+    if (owner == null) return;
+    final events = await room.events(owner);
+    // Small inventories repair dropped broadcasts without retransmitting the
+    // entire history on every health tick. Requests/replays are idempotent.
+    for (var i = 0; i < events.length; i += 64) {
+      if (_ownerId != owner || !connected.contains(endpoint)) return;
+      await _direct(
+        endpoint,
+        _envelope('room_inventory', {
+          'keys': events.skip(i).take(64).map(_roomKey).toList(),
+        }),
+      );
+    }
+  }
+
+  /// Public disaster bulletin: every relay persists and forwards signed events.
+  /// Unlike private chat, all participating phones can read this room.
+  Future<void> sendRoom(String text) async {
+    await _sessionWork;
+    final owner = _ownerId;
+    final generation = _sessionGeneration;
+    if (owner == null) throw StateError('กรุณาเข้าสู่ระบบก่อน');
+    if (text.trim().isEmpty || !ChatAction.validWire(text)) {
+      throw ArgumentError('ข้อความว่างหรือยาวเกินกำหนด');
+    }
+    final event = _envelope('room', {'text': text}, ttl: 6);
+    event['certificate'] = await crypto.certificate(
+      deviceId,
+      displayName,
+      _memberId,
+    );
+    await crypto.signStatus(event);
+    if (utf8.encode(jsonEncode(event)).length > 32768) {
+      throw ArgumentError('ข้อความยาวเกินขนาดที่ส่งผ่านเครือข่ายได้');
+    }
+    if (generation != _sessionGeneration) return;
+    await room.save(owner, event);
+    if (generation == _sessionGeneration) await _broadcast(event);
+  }
+
+  late final sosResponses = SosResponseRepository(_local);
+  final _radioSendQueue = RadioSendQueue();
   late final media = NearbyMediaTransfer(
     chats: chats,
     files: _mediaFiles ?? NearbyMediaFiles(),
@@ -210,7 +330,7 @@ class NearbyMeshService extends ChangeNotifier {
     sendFrame: (target, frame) async {
       await _sendTo(target, frame);
     },
-    changed: notifyListeners,
+    changed: _mediaChanged,
     received: (env) async {
       _remember(env);
       await AppNotifications.instance.show(
@@ -220,6 +340,8 @@ class NearbyMeshService extends ChangeNotifier {
             ? 'ส่งรูปภาพให้คุณ'
             : 'ส่งวิดีโอให้คุณ',
         thread: env['origin'],
+        owner: _ownerId,
+        transport: 'nearby',
       );
     },
   );
@@ -228,6 +350,7 @@ class NearbyMeshService extends ChangeNotifier {
   String? _memberId;
   final identities = <String, NearbyPeer>{};
   final _lastSeen = <String, DateTime>{};
+  final _probeFailures = <String, int>{};
   Timer? _healthTimer;
   Future<void> _receiveWork = Future<void>.value();
   DateTime _lastRetry = DateTime.fromMillisecondsSinceEpoch(0);
@@ -281,10 +404,48 @@ class NearbyMeshService extends ChangeNotifier {
   final List<MeshMessage> inbox = [];
   final Set<String> _seen = {};
   String status = 'ยังไม่ได้เริ่มค้นหา';
-  String displayName = 'offgrid-sos';
+  String displayName = 'SOSBROO';
   bool running = false;
   bool busy = false;
   bool rescueActive = false;
+  final _completedRescueCases = <String>{};
+
+  /// Persisted active state is history, not evidence of current proximity.
+  List<MeshMessage> get currentSosCases {
+    final latest = <String, MeshMessage>{};
+    for (final message in inbox) {
+      final body = message.data['data'];
+      final origin = message.data['origin']?.toString();
+      if (message.kind != 'sos' ||
+          body is! Map ||
+          body['caseId'] is! String ||
+          origin == null ||
+          origin == deviceId) {
+        continue;
+      }
+      latest.putIfAbsent('$origin:${body['caseId']}', () => message);
+    }
+    return latest.values
+        .where(
+          (m) =>
+              (m.data['data'] as Map)['active'] == true &&
+              !_completedRescueCases.contains(
+                '${m.data['origin']}:${(m.data['data'] as Map)['caseId']}',
+              ) &&
+              peerForDevice(m.data['origin'].toString()) != null,
+        )
+        .toList();
+  }
+
+  /// Nearby chooses its radio internally; do not claim it is Wi-Fi.
+  String get connectionLabel {
+    final bluetooth = connected.where((id) => id.startsWith('bt:')).length;
+    final nearby = connected.length - bluetooth;
+    if (bluetooth > 0 && nearby > 0) return 'Bluetooth โดยตรง + Nearby';
+    if (bluetooth > 0) return 'Bluetooth โดยตรง';
+    if (nearby > 0) return 'Nearby Connections';
+    return 'ยังไม่เชื่อมต่อ';
+  }
 
   /// A case conversation does not imply that the other participant is rescue.
   bool isPeerRescueActive(String device) {
@@ -316,6 +477,7 @@ class NearbyMeshService extends ChangeNotifier {
   }
 
   Map<String, dynamic>? mySos;
+  LocalSosRecord? ownSosRecord;
   final _pairingQueue = <({String id, String name, String token})>[];
   String? pendingPeer;
   String? pendingToken;
@@ -388,10 +550,14 @@ class NearbyMeshService extends ChangeNotifier {
     final savedStates = await chats.loadSos(user.id);
     if (generation != _sessionGeneration) return;
     inbox.addAll(savedStates.map(MeshMessage.new));
+    final completed = await sosResponses.completedCases(user.id);
+    if (generation != _sessionGeneration) return;
+    _completedRescueCases.addAll(completed);
     _notify('พร้อมใช้งาน Nearby • กดเริ่มเพื่อค้นหาอุปกรณ์');
   }
 
   void _restoreSos(LocalSosRecord record) {
+    ownSosRecord = record;
     activeSosId = record.id;
     final recordedAt = record.locationRecordedAt;
     mySos = {
@@ -428,10 +594,15 @@ class NearbyMeshService extends ChangeNotifier {
   }
 
   void _clearSession() {
+    _completedRescueCases.clear();
     _ownerId = null;
     _memberId = null;
     identities.clear();
     routes.clear();
+    _routeCandidates.clear();
+    _connectingSince.clear();
+    _passiveSince.clear();
+    _bluetoothReconnect.clear();
     _routeSeen.clear();
     _canRescue = false;
     _attestation = null;
@@ -444,17 +615,21 @@ class NearbyMeshService extends ChangeNotifier {
     deviceId = '';
     activeSosId = null;
     mySos = null;
+    ownSosRecord = null;
     rescueActive = false;
     inbox.clear();
     _seen.clear();
     peers.clear();
+    _discoveryHints.clear();
+    _discoveredAt.clear();
+    _visibleEndpoints.clear();
     discoveredModes.clear();
     connected.clear();
     _pairingQueue.clear();
     pendingPeer = null;
     pendingName = null;
     pendingToken = null;
-    displayName = 'offgrid-sos';
+    displayName = 'SOSBROO';
     needsPermissionSettings = false;
     needsLocationSettings = false;
   }
@@ -569,6 +744,7 @@ class NearbyMeshService extends ChangeNotifier {
   }
 
   final discoveredModes = <String, String>{};
+  final _visibleEndpoints = <String>{};
   String _advertisedName = '';
   Future<void> _advertisingWork = Future.value();
   String get discoveryName {
@@ -578,18 +754,156 @@ class NearbyMeshService extends ChangeNotifier {
         ? 'R'
         : 'N';
     final name = String.fromCharCodes(displayName.runes.take(24));
-    return 'OG9:$mode:$name';
+    final hint = discoveryHint(deviceId);
+    return hint.isEmpty ? 'OG9:$mode:$name' : 'OG10:$mode:$hint:$name';
   }
 
   static ({String name, String mode}) parseDiscoveryName(String raw) {
+    final modern = RegExp(
+      r'^OG10:([SRN]):([A-Za-z0-9_-]{1,64}):(.*)$',
+    ).firstMatch(raw);
+    if (modern != null) return (name: modern.group(3)!, mode: modern.group(1)!);
     final match = RegExp(r'^OG9:([SRN]):(.*)$').firstMatch(raw);
     return (name: match?.group(2) ?? raw, mode: match?.group(1) ?? 'N');
   }
 
+  static String discoveryHint(String id) {
+    final safe = id.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '');
+    return safe.length > 48 ? safe.substring(0, 48) : safe;
+  }
+
+  final _discoveryHints = <String, String>{};
+  final _discoveredAt = <String, DateTime>{};
+
+  String _visibleKey(String endpoint) {
+    final identity = identities[endpoint];
+    final hint = identity == null
+        ? _discoveryHints[endpoint]
+        : discoveryHint(identity.deviceId);
+    return hint == null || hint.isEmpty ? 'endpoint:$endpoint' : 'device:$hint';
+  }
+
+  /// Never merge by display name: different people can have the same name.
+  Map<String, String> get visiblePeers {
+    final grouped = <String, String>{};
+    final endpoints = {
+      ...peers.keys,
+      ...identities.keys.where(connected.contains),
+    };
+    for (final endpoint in endpoints) {
+      if (identities[endpoint]?.deviceId == deviceId) continue;
+      final hint = _discoveryHints[endpoint];
+      if (!connected.contains(endpoint) &&
+          hint != null &&
+          reachablePeers.any(
+            (p) => p.hops > 1 && discoveryHint(p.deviceId) == hint,
+          )) {
+        continue;
+      }
+      final key = _visibleKey(endpoint);
+      final previous = grouped[key];
+      int rank(String id) =>
+          (connected.contains(id) ? 2 : 0) +
+          (identities.containsKey(id) ? 1 : 0);
+      if (previous == null ||
+          rank(endpoint) > rank(previous) ||
+          (rank(endpoint) == rank(previous) &&
+              (_discoveredAt[endpoint] ?? DateTime(2000)).isAfter(
+                _discoveredAt[previous] ?? DateTime(2000),
+              ))) {
+        grouped[key] = endpoint;
+      }
+    }
+    return {
+      for (final endpoint in grouped.values)
+        endpoint:
+            identities[endpoint]?.name ?? peers[endpoint] ?? 'บุคคลใกล้เคียง',
+    };
+  }
+
+  int get connectedDeviceCount => connected.map(_visibleKey).toSet().length;
+
+  final _autoAttempts = <String, DateTime>{};
+  final _autoPending = <String>{};
+  bool automaticConnections = true;
+
+  Future<void> _connectAutomatically(String endpoint) async {
+    final generation = _radioGeneration;
+    final last = _autoAttempts[endpoint];
+    final hint = _discoveryHints[endpoint];
+    final waitingSince = _passiveSince.putIfAbsent(endpoint, DateTime.now);
+    if (hint != null &&
+        !initiatesAutomatically(
+          deviceId,
+          hint,
+          waited: DateTime.now().difference(waitingSince),
+        )) {
+      return;
+    }
+    if (connected.any(
+      (id) => id != endpoint && _visibleKey(id) == _visibleKey(endpoint),
+    )) {
+      return;
+    }
+    if (!automaticConnections ||
+        !running ||
+        connected.contains(endpoint) ||
+        _autoPending.contains(endpoint) ||
+        connected.length >= 8 ||
+        _autoPending.length >= 6 ||
+        (last != null &&
+            DateTime.now().difference(last) < const Duration(seconds: 6))) {
+      return;
+    }
+    _autoPending.add(endpoint);
+    _autoAttempts[endpoint] = DateTime.now();
+    try {
+      // Different short delays reduce simultaneous cross-requests while making
+      // the first connection feel immediate after discovery.
+      await Future<void>.delayed(
+        Duration(milliseconds: 100 + endpoint.hashCode.abs() % 300),
+      );
+      if (generation != _radioGeneration ||
+          !running ||
+          !peers.containsKey(endpoint) ||
+          connected.contains(endpoint)) {
+        return;
+      }
+      await connect(endpoint);
+    } finally {
+      _autoPending.remove(endpoint);
+    }
+  }
+
+  Future<void> _acceptAutomatically(String id) async {
+    final generation = _radioGeneration;
+    try {
+      if (connected.length >= 8) {
+        await _nearby.rejectConnection(id);
+        return;
+      }
+      await _nearby.acceptConnection(
+        id,
+        onPayLoadRecieved: (from, payload) {
+          if (generation == _radioGeneration) _received(from, payload);
+        },
+      );
+    } catch (_) {
+      /* Discovery will retry a failed radio handshake. */
+    }
+  }
+
   void discovered(String endpoint, String raw) {
+    _visibleEndpoints.add(endpoint);
     final value = parseDiscoveryName(raw);
     peers[endpoint] = value.name;
+    _discoveredAt[endpoint] = DateTime.now();
+    final modern = RegExp(
+      r'^OG10:[SRN]:([A-Za-z0-9_-]{1,64}):',
+    ).firstMatch(raw);
+    if (modern != null) _discoveryHints[endpoint] = modern.group(1)!;
     discoveredModes[endpoint] = value.mode;
+    unawaited(_connectAutomatically(endpoint));
     notifyListeners();
   }
 
@@ -663,11 +977,32 @@ class NearbyMeshService extends ChangeNotifier {
         busy) {
       return;
     }
-    if (mode == 'bluetooth') {
+    if (mode == 'bluetooth' && !startIfUnset) {
       await startBluetooth(user);
     } else if (mode == 'nearby' || startIfUnset) {
       await start(user.fullName, user: user);
     }
+  }
+
+  Future<bool> _startDiscovery(int generation) async {
+    return _nearby.startDiscovery(
+      displayName,
+      Strategy.P2P_CLUSTER,
+      onEndpointFound: (id, name, service) {
+        if (generation != _radioGeneration) return;
+        discovered(id, name);
+      },
+      onEndpointLost: (id) {
+        if (generation != _radioGeneration) return;
+        _visibleEndpoints.remove(id);
+        if (id != null && !connected.contains(id)) {
+          peers.remove(id);
+          discoveredModes.remove(id);
+        }
+        notifyListeners();
+      },
+      serviceId: serviceId,
+    );
   }
 
   Future<void> start(String name, {AppUser? user}) async {
@@ -683,7 +1018,7 @@ class NearbyMeshService extends ChangeNotifier {
     }
     busy = true;
     final generation = _radioGeneration;
-    displayName = name.isEmpty ? 'offgrid-sos' : name;
+    displayName = name.isEmpty ? 'SOSBROO' : name;
     notifyListeners();
     try {
       needsPermissionSettings = false;
@@ -710,28 +1045,15 @@ class NearbyMeshService extends ChangeNotifier {
         await _shutdownRadios();
         return;
       }
-      final d = await _nearby.startDiscovery(
-        displayName,
-        Strategy.P2P_CLUSTER,
-        onEndpointFound: (id, name, service) {
-          if (generation != _radioGeneration) return;
-          discovered(id, name);
-        },
-        onEndpointLost: (id) {
-          if (generation != _radioGeneration) return;
-          if (id != null && !connected.contains(id)) {
-            peers.remove(id);
-            discoveredModes.remove(id);
-          }
-          notifyListeners();
-        },
-        serviceId: serviceId,
-      );
+      final d = await _startDiscovery(generation);
       if (generation != _radioGeneration) {
         await _shutdownRadios();
         return;
       }
       running = a || d;
+      for (final endpoint in peers.keys.toList()) {
+        unawaited(_connectAutomatically(endpoint));
+      }
       if (running) {
         await _rememberTransport('nearby');
         _healthTimer?.cancel();
@@ -783,6 +1105,21 @@ class NearbyMeshService extends ChangeNotifier {
     }
     running = true;
     await _rememberTransport('bluetooth');
+    // Bluetooth RFCOMM can only connect to Android-bonded devices. Queue every
+    // bonded peer automatically so users do not have to reopen the picker after
+    // a reconnect; devices without SOSBROO simply fail and are retried later.
+    try {
+      for (final device in await link.paired()) {
+        final id = device['id'];
+        if (id == null || id.isEmpty) continue;
+        peers[id] = device['name'] ?? 'Bluetooth';
+        _bluetoothReconnect.add(id);
+        unawaited(_connectAutomatically(id));
+      }
+    } catch (_) {
+      // The listener remains usable even when Android temporarily hides the
+      // bonded-device list; the user can still choose a device from the UI.
+    }
     _healthTimer ??= Timer.periodic(
       const Duration(seconds: 5),
       (_) => unawaited(_healthCheck()),
@@ -792,15 +1129,29 @@ class NearbyMeshService extends ChangeNotifier {
     return true;
   }
 
-  Future<void> connect(String id) async {
+  Future<void> connect(String id, {bool force = false}) async {
     final generation = _radioGeneration;
+    final started = _connectingSince[id];
+    if (connected.contains(id) ||
+        (!force &&
+            started != null &&
+            DateTime.now().difference(started) < const Duration(seconds: 25))) {
+      return;
+    }
+    // A user pressing “เชื่อมต่อ” must be able to retry an automatic attempt
+    // that is stuck in the Nearby plugin's handshake state.
+    if (force) {
+      _connectingSince.remove(id);
+      _autoAttempts.remove(id);
+    }
+    _connectingSince[id] = DateTime.now();
     try {
       if (id.startsWith('bt:')) {
         await BluetoothLink.instance.connect(id);
         return;
       }
       await _nearby.requestConnection(
-        displayName,
+        discoveryName,
         id,
         onConnectionInitiated: (id, info) {
           if (generation == _radioGeneration) _initiated(id, info);
@@ -813,15 +1164,23 @@ class NearbyMeshService extends ChangeNotifier {
         },
       );
     } catch (e) {
+      _connectingSince.remove(id);
       _notify('เชื่อมต่อไม่สำเร็จ: $e');
     }
   }
 
-  void _initiated(String id, ConnectionInfo info) => requestPairing(
-    id: id,
-    name: parseDiscoveryName(info.endpointName).name,
-    token: info.authenticationToken,
-  );
+  void _initiated(String id, ConnectionInfo info) {
+    if (automaticConnections && (running || busy)) {
+      peers[id] = parseDiscoveryName(info.endpointName).name;
+      unawaited(_acceptAutomatically(id));
+    } else {
+      requestPairing(
+        id: id,
+        name: parseDiscoveryName(info.endpointName).name,
+        token: info.authenticationToken,
+      );
+    }
+  }
 
   /// Keep simultaneous requests from two neighbours separate on a relay phone.
   void requestPairing({
@@ -878,6 +1237,7 @@ class NearbyMeshService extends ChangeNotifier {
   }
 
   void _result(String id, Status result) {
+    _connectingSince.remove(id);
     if (_ownerId == null) return;
     if (result == Status.CONNECTED) {
       unawaited(transportConnected(id));
@@ -888,8 +1248,12 @@ class NearbyMeshService extends ChangeNotifier {
 
   Future<void> transportConnected(String endpoint) async {
     if (_ownerId == null) return;
+    _connectingSince.remove(endpoint);
+    _passiveSince.remove(endpoint);
+    if (endpoint.startsWith('bt:')) _bluetoothReconnect.add(endpoint);
     connected.add(endpoint);
     _lastSeen[endpoint] = DateTime.now();
+    _probeFailures.remove(endpoint);
     _notify('เชื่อมต่อ ${connected.length} เครื่อง');
     await _announce(endpoint);
   }
@@ -907,6 +1271,12 @@ class NearbyMeshService extends ChangeNotifier {
       );
       final owner = _ownerId;
       if (owner == null) return;
+      // Durable replay includes room edits/deletes and messages written while
+      // isolated. Self-contained certificates let late joiners verify authors.
+      for (final event in await room.events(owner)) {
+        if (_ownerId != owner || !connected.contains(endpoint)) return;
+        await _direct(endpoint, {...event, 'ttl': 6});
+      }
       // Replay tombstones as well as active cases after a radio outage/restart.
       for (final record in await SosRepository(
         local: _local,
@@ -960,6 +1330,23 @@ class NearbyMeshService extends ChangeNotifier {
     }
   }
 
+  Future<void>? _routeRefresh;
+  Future<void> refreshRoutes() => _routeRefresh ??= _refreshRoutes()
+      .whenComplete(() => _routeRefresh = null);
+  Future<void> _refreshRoutes() async {
+    final generation = _sessionGeneration;
+    await Future.wait(
+      connected.toList().map((endpoint) async {
+        if (generation != _sessionGeneration || !connected.contains(endpoint)) {
+          return;
+        }
+        try {
+          await _advertise(endpoint: endpoint);
+        } catch (_) {}
+      }),
+    );
+  }
+
   Future<void> _receiveRoute(String from, Map<String, dynamic> packet) async {
     final generation = _sessionGeneration;
     final body = packet['data'] as Map;
@@ -978,7 +1365,8 @@ class NearbyMeshService extends ChangeNotifier {
       return;
     }
     final seenHops = _routeSeen[packet['id']];
-    if (seenHops != null && seenHops <= path.length) return;
+    final forward = seenHops == null || path.length < seenHops;
+    if (!forward && _routeCandidates[origin]?.containsKey(from) == true) return;
     if (!await crypto.accept(cert)) {
       _notify('รหัสความปลอดภัยของอุปกรณ์เปลี่ยน กรุณาตรวจสอบคู่เชื่อมต่อ');
       return;
@@ -1004,22 +1392,22 @@ class NearbyMeshService extends ChangeNotifier {
         attestedUntil: _verifiedPeers[origin]?.expiresAt,
       );
     }
-    _routeSeen[packet['id']] = path.length;
+    if (forward) _routeSeen[packet['id']] = path.length;
     if (_routeSeen.length > 2048) _routeSeen.remove(_routeSeen.keys.first);
-    final old = routes[origin];
-    if (old == null ||
-        old.via == from ||
-        old.hops >= path.length ||
-        old.expires.isBefore(DateTime.now())) {
-      routes[origin] = MeshRoute(
-        cert,
-        from,
-        path.length,
-        DateTime.now().add(const Duration(seconds: 40)),
-        path,
-      );
+    final candidates = _routeCandidates.putIfAbsent(origin, () => {});
+    candidates[from] = MeshRoute(
+      cert,
+      from,
+      path.length,
+      DateTime.now().add(const Duration(seconds: 90)),
+      path,
+    );
+    _selectRoute(origin);
+    if (_routeCandidates.length > 512) {
+      final oldest = _routeCandidates.keys.first;
+      _routeCandidates.remove(oldest);
+      routes.remove(oldest);
     }
-    if (routes.length > 512) routes.remove(routes.keys.first);
     if (verified != null &&
         _verifiedPeers[origin] == null &&
         !(_identityChallenges[origin]?.expires.isAfter(DateTime.now()) ??
@@ -1044,7 +1432,7 @@ class NearbyMeshService extends ChangeNotifier {
     }
     notifyListeners();
     unawaited(retryFor(origin));
-    if (packet['ttl'] > 0 && path.length < 6) {
+    if (forward && packet['ttl'] > 0 && path.length < 6) {
       await _broadcast({
         ...packet,
         'ttl': packet['ttl'] - 1,
@@ -1064,6 +1452,7 @@ class NearbyMeshService extends ChangeNotifier {
     final route = routes[target];
     if (route == null) throw StateError('ยังไม่พบกุญแจของผู้รับ');
     final packet = _envelope('routed', {'target': target}, ttl: 6);
+    if (message['kind'] == 'media_chunk') packet['bulk'] = true;
     final binding = '$deviceId|$target|${packet['id']}';
     final box = await crypto.seal(route.certificate, message, binding);
     packet['data'] = {'target': target, ...box};
@@ -1100,6 +1489,8 @@ class NearbyMeshService extends ChangeNotifier {
               kind == 'identity_challenge' ||
               kind == 'identity_response' ||
               kind == 'status_request' ||
+              kind == 'sos_response' ||
+              kind == 'sos_response_ack' ||
               kind.startsWith('media_'))) {
         return;
       }
@@ -1127,28 +1518,33 @@ class NearbyMeshService extends ChangeNotifier {
 
   void _disconnected(String id) {
     final peerId = identities[id]?.deviceId;
-    final lost = routes.entries
-        .where((e) => e.value.via == id)
-        .map((e) => e.key)
-        .toSet();
+    connected.remove(id);
+    _connectingSince.remove(id);
+    _autoAttempts.remove(id);
+    final lost = _removeRoutes((_, route) => route.via == id);
     if (peerId != null) lost.add(peerId);
     for (final device in lost) {
+      if (routes.containsKey(device)) continue;
       media.disconnected(device);
       _verifiedPeers.remove(device);
       _verifiedKeys.remove(device);
       _identityChallenges.remove(device);
     }
-    connected.remove(id);
-    peers.remove(id);
-    discoveredModes.remove(id);
+    if (!_visibleEndpoints.contains(id) &&
+        !(running && _bluetoothReconnect.contains(id))) {
+      peers.remove(id);
+      discoveredModes.remove(id);
+    }
     identities.remove(id);
-    routes.removeWhere((_, route) => route.via == id);
+
     if (lost.isNotEmpty && connected.isNotEmpty) {
       unawaited(
         _broadcast(_envelope('route_withdraw', {'devices': lost.toList()})),
       );
     }
+    unawaited(refreshRoutes().catchError((_) {}));
     _lastSeen.remove(id);
+    _probeFailures.remove(id);
     _pairingQueue.removeWhere((request) => request.id == id);
     if (pendingPeer == id) {
       pendingPeer = null;
@@ -1174,6 +1570,45 @@ class NearbyMeshService extends ChangeNotifier {
     } catch (_) {}
   }
 
+  Future<void> resumeConnections(AppUser user) async {
+    if (_ownerId != user.id) return;
+    final generation = _sessionGeneration;
+    final active = await SosRepository(local: _local).latestActive(user.id);
+    if (_ownerId != user.id || generation != _sessionGeneration) return;
+    if (active != null) {
+      _restoreSos(active);
+    } else {
+      ownSosRecord = null;
+      mySos = null;
+      activeSosId = null;
+    }
+    notifyListeners();
+    unawaited(refreshRoutes());
+    if (!running) {
+      await resumePreferred(user, startIfUnset: true);
+    } else {
+      if (_nearbyInstance != null && !BluetoothLink.instance.running) {
+        final generation = _radioGeneration;
+        try {
+          await _nearby.stopDiscovery();
+          if (generation == _radioGeneration && running) {
+            await _startDiscovery(generation);
+          }
+        } catch (_) {
+          /* Existing links remain usable while discovery recovers. */
+        }
+      }
+      // Keep still-discovered endpoints available for reconnect after sleep.
+      for (final endpoint in peers.keys.toList()) {
+        if (!endpoint.startsWith('bt:') ||
+            _bluetoothReconnect.contains(endpoint)) {
+          unawaited(_connectAutomatically(endpoint));
+        }
+      }
+      unawaited(_healthCheck());
+    }
+  }
+
   Future<void> _healthCheck() async {
     if (_checkingHealth) return;
     _checkingHealth = true;
@@ -1187,10 +1622,47 @@ class NearbyMeshService extends ChangeNotifier {
   Future<void> _runHealthCheck() async {
     final generation = _radioGeneration;
     final now = DateTime.now();
+    // The native RFCOMM accept loop can end when Android closes the server
+    // socket (Bluetooth toggled, adapter recovered, or the process was briefly
+    // backgrounded) while the Dart session is still marked as running.  Start
+    // it again before retrying peers so a reconnect does not depend on the user
+    // reopening the Bluetooth screen.
+    if (running &&
+        (_bluetoothReconnect.isNotEmpty ||
+            connected.any((id) => id.startsWith('bt:')))) {
+      try {
+        await BluetoothLink.instance.start();
+      } catch (_) {
+        // A transient adapter state is handled by the next health tick.
+      }
+    }
+    for (final endpoint in peers.keys.toList()) {
+      final seen = _discoveredAt[endpoint];
+      final connecting = _connectingSince[endpoint];
+      if (!connected.contains(endpoint) &&
+          !_visibleEndpoints.contains(endpoint) &&
+          !_bluetoothReconnect.contains(endpoint) &&
+          (connecting == null ||
+              now.difference(connecting) > const Duration(seconds: 25)) &&
+          seen != null &&
+          now.difference(seen) > const Duration(seconds: 30)) {
+        peers.remove(endpoint);
+        discoveredModes.remove(endpoint);
+        _discoveryHints.remove(endpoint);
+        _discoveredAt.remove(endpoint);
+        _visibleEndpoints.remove(endpoint);
+        continue;
+      }
+      if (!endpoint.startsWith('bt:') ||
+          _bluetoothReconnect.contains(endpoint)) {
+        unawaited(_connectAutomatically(endpoint));
+      }
+    }
     if (rescueActive && !hasRescueAttestation) await setRescue(false);
-    routes.removeWhere(
+    final expired = _removeRoutes(
       (_, r) => r.expires.isBefore(now) || !connected.contains(r.via),
     );
+    if (expired.isNotEmpty) notifyListeners();
     if (now.difference(_lastAdvertised) > const Duration(seconds: 15)) {
       _lastAdvertised = now;
       await _advertise();
@@ -1198,6 +1670,13 @@ class NearbyMeshService extends ChangeNotifier {
         'active': rescueActive,
         'revision': _rescueRevision,
       });
+      await Future.wait(
+        connected.toList().map((endpoint) async {
+          try {
+            await _syncRoom(endpoint);
+          } catch (_) {}
+        }),
+      );
       notifyListeners();
     }
     // Android may suspend timers while asleep. Give the link a chance to
@@ -1211,20 +1690,25 @@ class NearbyMeshService extends ChangeNotifier {
     for (final id in connected.toList()) {
       if (generation != _radioGeneration) return;
       if (DateTime.now().difference(_lastSeen[id] ?? DateTime.now()) >
-          const Duration(seconds: 20)) {
+          const Duration(seconds: 60)) {
         await _disconnect(id);
         continue;
       }
       try {
         await _direct(id, _envelope('ping', {}));
+        _probeFailures.remove(id);
       } catch (_) {
-        await _disconnect(id);
+        // A single busy radio/write timeout is not proof of a broken link.
+        // Android's transport callback still removes a genuinely closed socket.
+        final failures = (_probeFailures[id] ?? 0) + 1;
+        _probeFailures[id] = failures;
+        if (failures >= 3) await _disconnect(id);
       }
     }
     if (DateTime.now().difference(_lastRetry) > const Duration(seconds: 15)) {
       _lastRetry = DateTime.now();
       for (final peer in reachablePeers) {
-        await retryFor(peer.deviceId);
+        unawaited(retryFor(peer.deviceId));
       }
     }
   }
@@ -1238,7 +1722,25 @@ class NearbyMeshService extends ChangeNotifier {
     try {
       final raw = jsonDecode(utf8.decode(bytes));
       if (raw is Map) {
+        if (connected.contains(from) &&
+            raw['v'] == 1 &&
+            raw['kind'] is String &&
+            raw['origin'] is String &&
+            raw['data'] is Map) {
+          _lastSeen[from] = DateTime.now();
+        }
         final generation = _sessionGeneration;
+        // Keepalive must not sit behind file writes, signatures and history
+        // replay in the receive queue, which can cause healthy links to expire.
+        if (raw['kind'] == 'ping' || raw['kind'] == 'pong') {
+          unawaited(
+            handleEnvelope(
+              from,
+              Map<String, dynamic>.from(raw),
+            ).catchError((Object _) {}),
+          );
+          return;
+        }
         _receiveWork = _receiveWork
             .then((_) async {
               if (generation == _sessionGeneration) {
@@ -1348,21 +1850,17 @@ class NearbyMeshService extends ChangeNotifier {
           .whereType<String>()
           .take(512)
           .toSet();
-      final removed = routes.entries
-          .where(
-            (e) =>
-                e.value.via == from &&
-                (lost.contains(e.key) || e.value.path.any(lost.contains)),
-          )
-          .map((e) => e.key)
-          .toList();
+      final removed = _removeRoutes(
+        (target, route) =>
+            route.via == from &&
+            (lost.contains(target) || route.path.any(lost.contains)),
+      );
       for (final id in removed) {
-        routes.remove(id);
-        media.disconnected(id);
+        if (!routes.containsKey(id)) media.disconnected(id);
       }
       if (removed.isNotEmpty) {
         await _broadcast(
-          _envelope('route_withdraw', {'devices': removed}),
+          _envelope('route_withdraw', {'devices': removed.toList()}),
           except: from,
         );
       }
@@ -1389,7 +1887,7 @@ class NearbyMeshService extends ChangeNotifier {
       );
       peers[from] = identities[from]!.name;
       if (first) await _direct(from, _envelope('hello', {'userId': _memberId}));
-      await retryFor(origin);
+      unawaited(retryFor(origin));
       notifyListeners();
       return;
     }
@@ -1402,6 +1900,89 @@ class NearbyMeshService extends ChangeNotifier {
       return;
     }
     if (kind == 'pong') return;
+    if (kind == 'sos_response' || kind == 'sos_response_ack') {
+      if (!trusted || body['target'] != deviceId) return;
+      if (kind == 'sos_response_ack') {
+        if (body['messageId'] is String) {
+          await sosResponses.acknowledge(owner, body['messageId'], origin);
+        }
+        return;
+      }
+      final caseId = body['caseId'];
+      final category = body['category'];
+      final state = body['state'];
+      if (body['caseOrigin'] != deviceId ||
+          caseId is! String ||
+          caseId.length > 128 ||
+          body['revision'] is! int ||
+          body['sequence'] is! int ||
+          body['sequence'] < 1 ||
+          !((category == 'receipt' && state == 'received') ||
+              (category == 'progress' &&
+                  [
+                    'accepted',
+                    'helping',
+                    'completed',
+                    'released',
+                  ].contains(state)))) {
+        return;
+      }
+      final record = await SosRepository(local: _local).findById(caseId);
+      final previous = category == 'progress' && state == 'completed'
+          ? await sosResponses.stored(
+              owner,
+              deviceId,
+              caseId,
+              origin,
+              'progress',
+            )
+          : null;
+      final previousBody = previous?['data'] as Map?;
+      final completionRetry =
+          previous?['id'] == data['id'] &&
+          previousBody?['state'] == 'completed' &&
+          previousBody?['sequence'] == body['sequence'] &&
+          previousBody?['revision'] == body['revision'];
+      if (record == null ||
+          record.ownerLocalId != owner ||
+          body['revision'] > record.revision ||
+          body['revision'] < 1 ||
+          (category == 'progress' &&
+              ((!record.isActive && !completionRetry) ||
+                  (!completionRetry &&
+                      _verifiedPeers[origin]?.rescuer != true)))) {
+        return;
+      }
+      final fresh = await sosResponses.receive(owner, data);
+      if (_ownerId != owner) return;
+      if (category == 'progress' &&
+          state == 'completed' &&
+          (fresh || completionRetry)) {
+        final closed = await SosRepository(
+          local: _local,
+        ).complete(caseId, owner);
+        if (_ownerId != owner) return;
+        if (closed != null) {
+          await publishSosRecord(closed);
+          if (closed.ownerUserId != null) {
+            unawaited(() async {
+              try {
+                await SyncService.instance.syncNow();
+              } catch (_) {}
+            }());
+          }
+        }
+      }
+      await _sendTo(
+        origin,
+        _envelope('sos_response_ack', {
+          'target': origin,
+          'messageId': data['id'],
+        }),
+      );
+      if (fresh) notifyListeners();
+      return;
+    }
     if (kind.startsWith('media_')) {
       if (!trusted) return;
       await media.handle(origin, data);
@@ -1419,7 +2000,7 @@ class NearbyMeshService extends ChangeNotifier {
       if (!trusted ||
           body['target'] != deviceId ||
           body['text'] is! String ||
-          (body['text'] as String).length > 4000) {
+          !ChatAction.validWire(body['text'] as String)) {
         return;
       }
       final fresh = await chats.save(
@@ -1434,13 +2015,61 @@ class NearbyMeshService extends ChangeNotifier {
         _envelope('ack', {'target': origin, 'messageId': data['id']}),
       );
       if (!fresh || _ownerId != owner) return;
+      final action = ChatAction.parse(body['text'] as String);
+      if (action?.kind == 'retract' || action?.kind == 'delete') {
+        media.cancelIncoming(origin, action!.target);
+      }
       _remember(data);
       await AppNotifications.instance.show(
         id: data['id'],
         title: data['sender']?.toString() ?? 'ข้อความ Nearby',
-        text: body['text'] as String,
+        text: ChatAction.preview(body['text'] as String),
         thread: origin,
+        owner: owner,
+        transport: 'nearby',
       );
+      return;
+    }
+    if (kind == 'room_inventory' || kind == 'room_request') {
+      final keys = body['keys'];
+      if (keys is! List ||
+          keys.length > 64 ||
+          keys.any((k) => k is! String || k.length > 260)) {
+        return;
+      }
+      final events = await room.events(owner);
+      if (_ownerId != owner) return;
+      if (kind == 'room_inventory') {
+        final known = events.map(_roomKey).toSet();
+        final missing = keys.where((key) => !known.contains(key)).toList();
+        if (missing.isNotEmpty) {
+          await _direct(from, _envelope('room_request', {'keys': missing}));
+        }
+      } else {
+        for (final event in events.where((e) => keys.contains(_roomKey(e)))) {
+          if (_ownerId != owner) return;
+          await _direct(from, {...event, 'ttl': 6});
+        }
+      }
+      return;
+    }
+    if (kind == 'room') {
+      final certificate = data['certificate'];
+      if (data['ttl'] < 0 ||
+          data['ttl'] > 6 ||
+          certificate is! Map ||
+          body['text'] is! String ||
+          (body['text'] as String).trim().isEmpty ||
+          !ChatAction.validWire(body['text'] as String) ||
+          !await crypto.accept(Map<String, dynamic>.from(certificate)) ||
+          !await crypto.verifyStatus(certificate, data) ||
+          _ownerId != owner) {
+        return;
+      }
+      if (!await room.save(owner, data) || _ownerId != owner) return;
+      if (data['ttl'] > 0) {
+        await _broadcast({...data, 'ttl': data['ttl'] - 1}, except: from);
+      }
       return;
     }
     if (kind != 'sos' && kind != 'rescue') return;
@@ -1453,11 +2082,24 @@ class NearbyMeshService extends ChangeNotifier {
     if (!_seen.add(data['id'])) return;
     _trimSeen();
     if (kind == 'sos') {
-      if (body['caseId'] is! String ||
-          body['active'] is! bool ||
-          !await chats.saveSos(owner, data)) {
-        return;
+      if (body['caseId'] is! String || body['active'] is! bool) return;
+      final fresh = await chats.saveSos(owner, data);
+      // Repeated broadcasts must replay a durable receipt if its ACK was lost.
+      // A receipt never proves that a human rescuer has accepted the case.
+      if (body['active'] == true && (body['revision'] as int? ?? 0) > 0) {
+        final saved = (await chats.loadSos(owner))
+            .where(
+              (e) =>
+                  e['origin'] == origin &&
+                  (e['data'] as Map)['caseId'] == body['caseId'],
+            )
+            .firstOrNull;
+        if (saved != null &&
+            (saved['data'] as Map)['revision'] == body['revision']) {
+          await _queueSosResponse(saved, 'receipt', 'received');
+        }
       }
+      if (!fresh) return;
     }
     if (kind == 'rescue') {
       if (body['active'] is! bool || body['revision'] is! int) return;
@@ -1476,11 +2118,17 @@ class NearbyMeshService extends ChangeNotifier {
     }
     if (_ownerId != owner) return;
     _remember(data);
+    if (kind == 'sos' && body['active'] == false) {
+      await sosResponses.cancelForCase(owner, origin, body['caseId'] as String);
+      await AppNotifications.instance.cancel('sos:$origin:${body['caseId']}');
+    }
     if (kind == 'sos' && body['active'] == true) {
       await AppNotifications.instance.show(
-        id: data['id'],
+        id: 'sos:$origin:${body['caseId']}',
         title: 'SOS จาก ${data['sender'] ?? 'คนใกล้เคียง'}',
         text: body['text']?.toString() ?? 'ต้องการความช่วยเหลือ',
+        sosDevice: origin,
+        owner: owner,
       );
     }
     final ttl = data['ttl'] as int;
@@ -1548,6 +2196,7 @@ class NearbyMeshService extends ChangeNotifier {
     'data': body,
   };
   Future<void> _direct(String endpoint, Map<String, dynamic> data) async {
+    final generation = _sessionGeneration;
     if (data['origin'] == deviceId &&
         (data['kind'] == 'sos' || data['kind'] == 'rescue') &&
         data['statusSignature'] == null) {
@@ -1555,17 +2204,22 @@ class NearbyMeshService extends ChangeNotifier {
     }
     final bytes = Uint8List.fromList(utf8.encode(jsonEncode(data)));
     if (bytes.length > 32768) throw StateError('ข้อความยาวเกินกำหนด');
-    if (_sendOverride != null) {
-      await _sendOverride(endpoint, bytes);
-    } else if (endpoint.startsWith('bt:')) {
-      await BluetoothLink.instance
-          .send(endpoint, bytes)
-          .timeout(const Duration(seconds: 5));
-    } else {
-      await _nearby
-          .sendBytesPayload(endpoint, bytes)
-          .timeout(const Duration(seconds: 5));
-    }
+    await _radioSendQueue.add(endpoint, () async {
+      if (generation != _sessionGeneration) {
+        throw StateError('บัญชีเปลี่ยนแล้ว');
+      }
+      if (_sendOverride != null) {
+        await _sendOverride(endpoint, bytes);
+      } else if (endpoint.startsWith('bt:')) {
+        await BluetoothLink.instance
+            .send(endpoint, bytes)
+            .timeout(const Duration(seconds: 5));
+      } else {
+        await _nearby
+            .sendBytesPayload(endpoint, bytes)
+            .timeout(const Duration(seconds: 5));
+      }
+    }, priority: data['bulk'] != true);
   }
 
   Future<int> sendDirect({
@@ -1575,6 +2229,7 @@ class NearbyMeshService extends ChangeNotifier {
     String? peerName,
     SavedLocation? location,
     String? messageId,
+    String? recipientUser,
   }) async {
     if (location != null &&
         (!location.latitude.isFinite ||
@@ -1588,7 +2243,7 @@ class NearbyMeshService extends ChangeNotifier {
     if (owner == null ||
         target.isEmpty ||
         text.trim().isEmpty ||
-        text.length > 4000) {
+        !ChatAction.validWire(text)) {
       return 0;
     }
     if (messageId != null && await chats.find(owner, messageId) != null) {
@@ -1608,6 +2263,7 @@ class NearbyMeshService extends ChangeNotifier {
       'caseId': ?caseId,
     });
     if (messageId != null) env['id'] = messageId;
+    if (recipientUser != null) env['recipientUser'] = recipientUser;
     env['peerName'] = peerName ?? peerForDevice(target)?.name ?? 'คนใกล้เคียง';
     await chats.save(owner, target, env, incoming: false);
     _remember(env);
@@ -1635,7 +2291,13 @@ class NearbyMeshService extends ChangeNotifier {
   ) async {
     final peer = peerForDevice(target);
     if (peer == null || _ownerId != owner) return 0;
+    if (env['recipientUser'] != null && peer.userId != env['recipientUser']) {
+      return 0;
+    }
     if (env['kind'] == 'media') {
+      // A reachable device always gets the file directly. Internet/cloud
+      // availability must never delay Bluetooth/Nearby delivery, including
+      // legacy queue entries that contain a cloudFirstUntil field.
       // Do not block the serialized receive loop: file replies arrive on it.
       unawaited(
         media.send(target, env).then((sent) async {
@@ -1653,11 +2315,85 @@ class NearbyMeshService extends ChangeNotifier {
     }
   }
 
+  Future<void> _queueSosResponse(
+    Map<String, dynamic> sos,
+    String category,
+    String state,
+  ) async {
+    final owner = _ownerId;
+    if (owner == null) return;
+    final body = sos['data'] as Map;
+    final env = _envelope('sos_response', {
+      'target': sos['origin'],
+      'caseOrigin': sos['origin'],
+      'caseId': body['caseId'],
+      'revision': body['revision'],
+      'category': category,
+      'state': state,
+    });
+    final queued = await sosResponses.queue(owner, env);
+    if (_ownerId != owner) return;
+    if (category == 'progress' && state == 'completed') {
+      _completedRescueCases.add('${sos['origin']}:${body['caseId']}');
+      notifyListeners();
+    }
+    try {
+      await _sendTo(sos['origin'] as String, queued);
+    } catch (_) {
+      /* Retry on reconnect. */
+    }
+    notifyListeners();
+  }
+
+  Future<void> updateRescueCase(Map<String, dynamic> sos, String state) async {
+    if (!hasRescueAttestation || !rescueActive) {
+      throw StateError('เปิดโหมดกู้ภัยก่อนรับเคส');
+    }
+    if (!['accepted', 'helping', 'completed', 'released'].contains(state)) {
+      throw ArgumentError('สถานะเคสไม่ถูกต้อง');
+    }
+    final body = sos['data'] as Map;
+    final current = currentSosCases
+        .where(
+          (m) =>
+              m.data['origin'] == sos['origin'] &&
+              (m.data['data'] as Map)['caseId'] == body['caseId'],
+        )
+        .firstOrNull;
+    if (current == null) {
+      throw StateError('เคสนี้ไม่อยู่ในรายการที่ติดต่อได้แล้ว');
+    }
+    await _queueSosResponse(current.data, 'progress', state);
+  }
+
   Future<void> retryFor(String target) async {
     final owner = _ownerId;
-    if (owner == null || peerForDevice(target) == null) return;
-    for (final env in await chats.pending(owner, target)) {
-      await _deliver(owner, target, env);
+    final generation = _sessionGeneration;
+    final key = '$generation:$target';
+    if (owner == null ||
+        peerForDevice(target) == null ||
+        !_retryingTargets.add(key)) {
+      return;
+    }
+    bool current() =>
+        owner == _ownerId &&
+        generation == _sessionGeneration &&
+        peerForDevice(target) != null;
+    try {
+      for (final response in await sosResponses.pending(owner, target)) {
+        if (!current()) return;
+        try {
+          await _sendTo(target, response);
+        } catch (_) {}
+      }
+      for (final env in await chats.pending(owner, target)) {
+        if (!current()) return;
+        await _deliver(owner, target, env);
+      }
+    } catch (_) {
+      // Local rows remain queued if storage/session changes during a retry.
+    } finally {
+      _retryingTargets.remove(key);
     }
   }
 
@@ -1669,6 +2405,7 @@ class NearbyMeshService extends ChangeNotifier {
     String? peerName,
     String? caseId,
     String? messageId,
+    String? recipientUser,
   }) async {
     await _sessionWork;
     final owner = _ownerId;
@@ -1681,6 +2418,7 @@ class NearbyMeshService extends ChangeNotifier {
     if (messageId != null && await chats.find(owner, messageId) != null) return;
     final env = _envelope('media', {});
     if (messageId != null) env['id'] = messageId;
+    if (recipientUser != null) env['recipientUser'] = recipientUser;
     final stored = await media.files.importFile(owner, env['id'], path, type);
     if (_ownerId != owner || generation != _sessionGeneration) {
       throw StateError('บัญชีเปลี่ยนระหว่างบันทึกไฟล์');
@@ -1745,26 +2483,29 @@ class NearbyMeshService extends ChangeNotifier {
       _notify('ข้อความยาวเกินกำหนด Nearby');
       return 0;
     }
-    var ok = 0;
-    for (final peer in connected.toList()) {
-      if (peer == except) {
-        continue;
-      }
-      try {
-        await _direct(peer, data);
-        ok++;
-      } catch (e) {
-        _notify('ส่งถึง $peer ไม่สำเร็จ: $e');
-      }
-    }
+    final results = await Future.wait(
+      connected.toList().where((peer) => peer != except).map((peer) async {
+        try {
+          await _direct(peer, data);
+          return 1;
+        } catch (e) {
+          _notify('ส่งถึง $peer ไม่สำเร็จ: $e');
+          return 0;
+        }
+      }),
+    );
+    final ok = results.fold<int>(0, (total, value) => total + value);
     notifyListeners();
     return ok;
   }
 
   Future<int> stopSos({String? caseId}) async {
     final id = caseId ?? activeSosId;
-    mySos = null;
-    activeSosId = null;
+    if (caseId == null || activeSosId == id) {
+      mySos = null;
+      activeSosId = null;
+      ownSosRecord = null;
+    }
     final record = id == null
         ? null
         : await SosRepository(local: _local).findById(id);
@@ -1826,9 +2567,19 @@ class NearbyMeshService extends ChangeNotifier {
     }
   }
 
+  Timer? _mediaNotifyTimer;
+  void _mediaChanged() {
+    // Progress frames must not rebuild every screen for every 12 KB packet.
+    _mediaNotifyTimer ??= Timer(const Duration(milliseconds: 200), () {
+      _mediaNotifyTimer = null;
+      notifyListeners();
+    });
+  }
+
   @override
   void dispose() {
     _healthTimer?.cancel();
+    _mediaNotifyTimer?.cancel();
     media.cancel();
     super.dispose();
   }
@@ -1852,11 +2603,21 @@ class NearbyMeshService extends ChangeNotifier {
     running = false;
     connected.clear();
     peers.clear();
+    _discoveryHints.clear();
+    _discoveredAt.clear();
+    _visibleEndpoints.clear();
     discoveredModes.clear();
     _advertisedName = '';
+    _autoAttempts.clear();
+    _autoPending.clear();
     identities.clear();
     routes.clear();
+    _routeCandidates.clear();
+    _connectingSince.clear();
+    _passiveSince.clear();
+    _bluetoothReconnect.clear();
     _lastSeen.clear();
+    _probeFailures.clear();
     _pairingQueue.clear();
     pendingPeer = null;
     pendingToken = null;

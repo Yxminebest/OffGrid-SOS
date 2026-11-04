@@ -10,9 +10,50 @@ import io.flutter.embedding.engine.dart.DartExecutor
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    companion object {
+        // Notification payloads arrive before Flutter may be resumed. Keep one
+        // pending payload in the activity and let Dart consume it once through
+        // the platform channel; this also covers taps while the app is alive.
+        var pendingSosTap: Map<String, String>? = null
+        var pendingChatTap: Map<String, String>? = null
+    }
+    private var notificationChannel: MethodChannel? = null
+    private fun captureSosTap(value: Intent?) {
+        val thread = value?.getStringExtra("chatThread")
+        val chatOwner = value?.getStringExtra("chatOwner")
+        val transport = value?.getStringExtra("chatTransport")
+        if (!thread.isNullOrBlank() && !chatOwner.isNullOrBlank() && transport in listOf("nearby", "cloud")) {
+            pendingChatTap = mapOf("thread" to thread, "owner" to chatOwner, "transport" to transport!!)
+            pendingSosTap = null
+            value?.removeExtra("chatThread")
+            value?.removeExtra("chatOwner")
+            value?.removeExtra("chatTransport")
+            return
+        }
+        val device = value?.getStringExtra("sosDevice") ?: return
+        val owner = value.getStringExtra("sosOwner") ?: return
+        pendingSosTap = mapOf("device" to device, "owner" to owner)
+        pendingChatTap = null
+        value.removeExtra("sosDevice")
+        value.removeExtra("sosOwner")
+    }
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        captureSosTap(intent)
+        super.onCreate(savedInstanceState)
+    }
+    override fun onNewIntent(intent: Intent) {
+        captureSosTap(intent)
+        super.onNewIntent(intent)
+        if (pendingChatTap != null || pendingSosTap != null) {
+            notificationChannel?.invokeMethod("notificationTap", null)
+        }
+    }
     override fun provideFlutterEngine(context: Context): FlutterEngine {
         val cache = FlutterEngineCache.getInstance()
-        cache.get("offgrid_messaging")?.let { return it }
+        cache.get("offgrid_messaging")?.let {
+            notificationChannel = MethodChannel(it.dartExecutor.binaryMessenger, "com.offgridsos/platform")
+            return it
+        }
         val engine = FlutterEngine(context.applicationContext)
         val app = context.applicationContext
         val bluetoothChannel = MethodChannel(engine.dartExecutor.binaryMessenger, "com.offgridsos/bluetooth")
@@ -31,12 +72,21 @@ class MainActivity : FlutterActivity() {
                 }
             } catch (e: Exception) { result.error("BLUETOOTH", e.message, null) }
         }
-        MethodChannel(engine.dartExecutor.binaryMessenger, "com.offgridsos/platform")
+        notificationChannel = MethodChannel(engine.dartExecutor.binaryMessenger, "com.offgridsos/platform")
+        notificationChannel!!
             .setMethodCallHandler { call, result ->
                 try {
                     when (call.method) {
                         "getAndroidSdkVersion" -> result.success(Build.VERSION.SDK_INT)
+                        "takeSosTap" -> { val tap = pendingSosTap; pendingSosTap = null; result.success(tap) }
+                        "takeChatTap" -> { val tap = pendingChatTap; pendingChatTap = null; result.success(tap) }
+                        "cancelMessage" -> { Notifications.cancel(app, call.argument<String>("id") ?: ""); result.success(null) }
                         "notificationsEnabled" -> result.success(Notifications.enabled(app))
+                        "notificationSound" -> result.success(Notifications.soundEnabled(app))
+                        "setNotificationSound" -> {
+                            val enabled = call.argument<Boolean>("enabled") ?: true
+                            result.success(Notifications.setSound(app, enabled))
+                        }
                         "startMessaging" -> {
                             Notifications.channels(app)
                             val intent = Intent(app, MessagingService::class.java)
@@ -46,7 +96,9 @@ class MainActivity : FlutterActivity() {
                         "stopMessaging" -> { app.stopService(Intent(app, MessagingService::class.java)); result.success(null) }
                         "showMessage" -> {
                             Notifications.show(app, call.argument<String>("id") ?: "message",
-                                call.argument<String>("title") ?: "Offgrid SOS", call.argument<String>("text") ?: "ข้อความใหม่")
+                                call.argument<String>("title") ?: "Offgrid SOS", call.argument<String>("text") ?: "ข้อความใหม่",
+                                call.argument<String>("sosDevice"), call.argument<String>("owner"),
+                                call.argument<String>("thread"), call.argument<String>("transport"))
                             result.success(null)
                         }
                         else -> result.notImplemented()

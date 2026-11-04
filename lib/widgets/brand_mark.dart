@@ -1,3 +1,4 @@
+import '../app/app_palette.dart';
 import 'package:flutter/material.dart';
 
 /// High-contrast SOS and warning triangle, readable without brand familiarity.
@@ -8,7 +9,7 @@ class BrandMark extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Semantics(
     image: true,
-    label: 'โลโก้ Offgrid SOS',
+    label: 'โลโก้ SOSBROO',
     child: SizedBox.square(
       dimension: size,
       child: const CustomPaint(painter: BrandMarkPainter()),
@@ -30,7 +31,7 @@ class BrandMarkPainter extends CustomPainter {
           const Rect.fromLTWH(0, 0, 100, 100),
           const Radius.circular(26),
         ),
-        Paint()..color = const Color(0xFFF4C84B),
+        Paint()..color = AppColors.brand,
       );
     }
     final triangle = Path()
@@ -43,7 +44,7 @@ class BrandMarkPainter extends CustomPainter {
       ..close()
       ..addRect(const Rect.fromLTWH(48, 27, 4, 12))
       ..addRect(const Rect.fromLTWH(48, 43, 4, 4));
-    canvas.drawPath(triangle, Paint()..color = const Color(0xFF30250D));
+    canvas.drawPath(triangle, Paint()..color = AppColors.brandInk);
     final letters = Path()
       ..moveTo(35, 63)
       ..lineTo(26, 63)
@@ -70,7 +71,7 @@ class BrandMarkPainter extends CustomPainter {
     canvas.drawPath(
       letters,
       Paint()
-        ..color = const Color(0xFF30250D)
+        ..color = AppColors.brandInk
         ..style = PaintingStyle.stroke
         ..strokeWidth = 4.4
         ..strokeCap = StrokeCap.round
@@ -95,19 +96,11 @@ class BrandLockup extends StatelessWidget {
       const SizedBox(width: 11),
       Flexible(
         child: Text(
-          'offgrid',
+          'SOSBROO',
           style: Theme.of(context).textTheme.titleLarge?.copyWith(
             fontWeight: FontWeight.w800,
             letterSpacing: -.6,
           ),
-        ),
-      ),
-      const SizedBox(width: 5),
-      Text(
-        'SOS',
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          fontWeight: FontWeight.w800,
-          letterSpacing: 1.4,
         ),
       ),
     ],

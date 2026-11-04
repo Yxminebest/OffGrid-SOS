@@ -1,0 +1,110 @@
+import 'package:flutter/material.dart';
+
+class AppColors {
+  static const brand = Color(0x{{root.color-brand}});
+  static const brandInk = Color(0x{{root.color-brand-ink}});
+  static const rescueStrong = Color(0x{{root.color-rescue-strong}});
+  static const mapPin = Color(0x{{root.color-map-pin}});
+  static const onPrimaryDark = Color(0x{{root.color-on-primary-dark}});
+  static const errorDark = Color(0x{{root.color-error-dark}});
+  static const errorSurfaceDark = Color(0x{{root.color-error-surface-dark}});
+  static const errorSurfaceLight = Color(0x{{root.color-error-surface-light}});
+  static const onErrorDark = Color(0x{{root.color-on-error-dark}});
+  static const onErrorLight = Color(0x{{root.color-on-error-light}});
+  static const snackbarDark = Color(0x{{root.color-snackbar-dark}});
+  static const snackbarLight = Color(0x{{root.color-snackbar-light}});
+  static const snackbarAction = Color(0x{{root.color-snackbar-action}});
+
+  static const sos = Color(0x{{root.color-sos}});
+  static const error = Color(0x{{root.color-error}});
+  static const rescue = Color(0x{{root.color-rescue}});
+  static const info = Color(0x{{root.color-info}});
+  static const success = Color(0x{{root.color-success}});
+  static const pending = Color(0x{{root.color-pending}});
+}
+
+@immutable
+class AppPalette extends ThemeExtension<AppPalette> {
+  const AppPalette({
+    required this.background,
+    required this.surface,
+    required this.surfaceSoft,
+    required this.border,
+    required this.text,
+    required this.muted,
+    required this.info,
+    required this.rescue,
+    required this.success,
+    required this.pending,
+  });
+  final Color background, surface, surfaceSoft, border, text, muted;
+  final Color info, rescue, success, pending;
+
+  static const light = AppPalette(
+    background: Color(0x{{light.background}}),
+    surface: Color(0x{{light.surface}}),
+    surfaceSoft: Color(0x{{light.surface-soft}}),
+    border: Color(0x{{light.border}}),
+    text: Color(0x{{light.text}}),
+    muted: Color(0x{{light.muted}}),
+    info: Color(0x{{light.info}}),
+    rescue: Color(0x{{light.rescue}}),
+    success: Color(0x{{light.success}}),
+    pending: Color(0x{{light.pending}}),
+  );
+  static const dark = AppPalette(
+    background: Color(0x{{dark.background}}),
+    surface: Color(0x{{dark.surface}}),
+    surfaceSoft: Color(0x{{dark.surface-soft}}),
+    border: Color(0x{{dark.border}}),
+    text: Color(0x{{dark.text}}),
+    muted: Color(0x{{dark.muted}}),
+    info: Color(0x{{dark.info}}),
+    rescue: Color(0x{{dark.rescue}}),
+    success: Color(0x{{dark.success}}),
+    pending: Color(0x{{dark.pending}}),
+  );
+
+  @override
+  AppPalette copyWith({
+    Color? background,
+    Color? surface,
+    Color? surfaceSoft,
+    Color? border,
+    Color? text,
+    Color? muted,
+    Color? info,
+    Color? rescue,
+    Color? success,
+    Color? pending,
+  }) => AppPalette(
+    background: background ?? this.background,
+    surface: surface ?? this.surface,
+    surfaceSoft: surfaceSoft ?? this.surfaceSoft,
+    border: border ?? this.border,
+    text: text ?? this.text,
+    muted: muted ?? this.muted,
+    info: info ?? this.info,
+    rescue: rescue ?? this.rescue,
+    success: success ?? this.success,
+    pending: pending ?? this.pending,
+  );
+
+  @override
+  AppPalette lerp(covariant AppPalette? other, double t) {
+    if (other == null) return this;
+    return AppPalette(
+      background: Color.lerp(background, other.background, t)!,
+      surface: Color.lerp(surface, other.surface, t)!,
+      surfaceSoft: Color.lerp(surfaceSoft, other.surfaceSoft, t)!,
+      border: Color.lerp(border, other.border, t)!,
+      text: Color.lerp(text, other.text, t)!,
+      muted: Color.lerp(muted, other.muted, t)!,
+      info: Color.lerp(info, other.info, t)!,
+      rescue: Color.lerp(rescue, other.rescue, t)!,
+      success: Color.lerp(success, other.success, t)!,
+      pending: Color.lerp(pending, other.pending, t)!,
+    );
+  }
+}
+

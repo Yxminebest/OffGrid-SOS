@@ -1,11 +1,10 @@
+import '../../widgets/sos_response_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import '../../app/theme.dart';
 import '../../models/user.dart';
 import '../../services/nearby_mesh_service.dart';
 import 'rescue_case_chat_screen.dart';
-import 'rescue_history_screen.dart';
-import 'rescue_verification_history_screen.dart';
 import '../../widgets/location_actions.dart';
 
 class RescueScreen extends StatefulWidget {
@@ -35,24 +34,7 @@ class _RescueScreenState extends State<RescueScreen> {
     super.dispose();
   }
 
-  List<MeshMessage> get cases {
-    // Latest state for each origin + caseId, including cancellation updates.
-    final latest = <String, MeshMessage>{};
-    for (final m in mesh.inbox) {
-      if (m.kind != 'sos' || m.data['origin'] == mesh.deviceId) {
-        continue;
-      }
-      final body = m.data['data'];
-      if (body is! Map || body['caseId'] is! String) {
-        continue;
-      }
-      final key = '${m.data['origin']}:${body['caseId']}';
-      latest.putIfAbsent(key, () => m);
-    }
-    return latest.values
-        .where((m) => (m.data['data'] as Map)['active'] == true)
-        .toList();
-  }
+  List<MeshMessage> get cases => mesh.currentSosCases;
 
   Future<void> toggle() async {
     if (changing || !widget.me.isVerifiedRescuer) {
@@ -160,12 +142,6 @@ class _RescueScreenState extends State<RescueScreen> {
                 label: const Text('แชทกับผู้แจ้ง SOS'),
               ),
               const SizedBox(height: 8),
-              Text(
-                mesh.isDemoOrigin(origin)
-                    ? 'โหมดจำลอง: ไม่ได้ส่งผ่าน Nearby และไม่บันทึก Supabase'
-                    : 'แชทผ่าน Nearby เก็บประวัติในเครื่อง และส่งเมื่อเชื่อมต่อกับผู้แจ้งเหตุ',
-                style: TextStyle(fontSize: 12, color: context.colors.muted),
-              ),
             ],
           ),
         ),
@@ -181,27 +157,7 @@ class _RescueScreenState extends State<RescueScreen> {
     final onDuty = allowed && mesh.rescueActive;
     final active = cases;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('ศูนย์กู้ภัย'),
-        actions: [
-          if (allowed)
-            Padding(
-              padding: const EdgeInsets.only(right: 16),
-              child: Center(
-                child: Text(
-                  onDuty ? '● เปิดโหมดกู้ภัย' : 'ปิดโหมดกู้ภัย',
-                  style: TextStyle(
-                    color: onDuty
-                        ? context.colors.rescue
-                        : context.colors.muted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('ศูนย์กู้ภัย')),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(16),
@@ -217,9 +173,7 @@ class _RescueScreenState extends State<RescueScreen> {
               )
             else ...[
               Card(
-                color: onDuty
-                    ? const Color(0xFF1859A9)
-                    : context.colors.surface,
+                color: onDuty ? AppColors.rescueStrong : context.colors.surface,
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
@@ -270,18 +224,11 @@ class _RescueScreenState extends State<RescueScreen> {
                         ),
                       ),
                       const SizedBox(height: 14),
-                      Text(
-                        mesh.attestationStatus,
-                        style: TextStyle(
-                          color: onDuty ? Colors.white : context.colors.muted,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
                       FilledButton.icon(
                         style: onDuty
                             ? FilledButton.styleFrom(
                                 backgroundColor: Colors.white,
-                                foregroundColor: const Color(0xFF1859A9),
+                                foregroundColor: AppColors.rescueStrong,
                               )
                             : null,
                         onPressed: changing ? null : toggle,
@@ -299,29 +246,6 @@ class _RescueScreenState extends State<RescueScreen> {
                         ),
                       ),
                     ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              ListTile(
-                leading: const Icon(Icons.history),
-                title: const Text('ประวัติเคส SOS ที่ได้รับ'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        RescueHistoryScreen(me: widget.me, service: mesh),
-                  ),
-                ),
-              ),
-              ListTile(
-                leading: const Icon(Icons.verified_outlined),
-                title: const Text('ประวัติการขอสิทธิ์กู้ภัย'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        RescueVerificationHistoryScreen(me: widget.me),
                   ),
                 ),
               ),
@@ -361,7 +285,7 @@ class _RescueScreenState extends State<RescueScreen> {
                 children: [
                   const Expanded(
                     child: Text(
-                      'SOS ที่ได้รับจาก Nearby',
+                      'SOS ที่ติดต่อได้ขณะนี้',
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w900,
@@ -391,11 +315,7 @@ class _RescueScreenState extends State<RescueScreen> {
                 ],
               ),
               const SizedBox(height: 10),
-              if (!mesh.rescueActive)
-                Text(
-                  'เปิดโหมดปฏิบัติหน้าที่เพื่อเตรียมรับ SOS',
-                  style: TextStyle(color: context.colors.muted),
-                ),
+
               if (active.isEmpty)
                 Card(
                   child: Padding(
@@ -473,6 +393,15 @@ class _RescueScreenState extends State<RescueScreen> {
                             ],
                           ),
                           const SizedBox(height: 8),
+                          SosResponsePanel(
+                            me: widget.me,
+                            mesh: mesh,
+                            owner: widget.me.id,
+                            caseOrigin: m.data['origin'].toString(),
+                            caseId: (m.data['data'] as Map)['caseId']
+                                .toString(),
+                            sos: m.data,
+                          ),
                           Text(
                             '${m.data['sender'] ?? 'ผู้แจ้งเหตุ'} • ${m.data['at'] ?? ''}',
                             style: TextStyle(
@@ -502,14 +431,6 @@ class _RescueScreenState extends State<RescueScreen> {
                   ),
                 ),
               const SizedBox(height: 16),
-              Text(
-                'ข้อจำกัด: รับเฉพาะ SOS ผ่าน Nearby ที่จับคู่กันแล้ว • ไม่ใช่ระบบแจ้งเตือนฉุกเฉินที่รับประกันการส่ง • เปิดพิกัดในแอปได้ ภาพถนนขึ้นกับอินเทอร์เน็ตและแคชที่มี',
-                style: TextStyle(
-                  color: context.colors.muted,
-                  fontSize: 12,
-                  height: 1.5,
-                ),
-              ),
             ],
           ],
         ),

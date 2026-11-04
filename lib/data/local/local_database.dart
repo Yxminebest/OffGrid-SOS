@@ -1,5 +1,4 @@
 import 'package:sembast/sembast.dart';
-import 'package:uuid/uuid.dart';
 
 import 'database_factory.dart';
 
@@ -39,33 +38,6 @@ class LocalDatabase {
     }
   }
 
-  Future<String> conversationIdFor(String ownerId) async {
-    final db = await database;
-    final key = 'week3_demo_conversation_$ownerId';
-    final existing = await metaStore.record(key).get(db);
-
-    final currentId = existing?['conversation_id']?.toString();
-
-    if (currentId != null && currentId.isNotEmpty) {
-      return currentId;
-    }
-
-    final id = const Uuid().v4();
-
-    await metaStore.record(key).put(db, <String, Object?>{
-      'conversation_id': id,
-      'owner_id': ownerId,
-      'created_at': DateTime.now().toUtc().toIso8601String(),
-    });
-
-    return id;
-  }
-
-  Future<int> pendingSyncCount() async {
-    final db = await database;
-    return syncQueueStore.count(db);
-  }
-
   Future<void> clearOwnerData(String ownerId) async {
     final db = await database;
 
@@ -90,6 +62,9 @@ class LocalDatabase {
           .store('nearby_messages')
           .delete(txn, finder: nearbyOwner);
       await stringMapStoreFactory
+          .store('sos_responses')
+          .delete(txn, finder: nearbyOwner);
+      await stringMapStoreFactory
           .store('nearby_sos_states')
           .delete(txn, finder: nearbyOwner);
       await stringMapStoreFactory
@@ -99,17 +74,6 @@ class LocalDatabase {
         txn,
         finder: Finder(filter: Filter.equals('owner_id', ownerId)),
       );
-    });
-  }
-
-  Future<void> clearWeek3DemoData() async {
-    final db = await database;
-
-    await db.transaction((txn) async {
-      await sosStore.drop(txn);
-      await messageStore.drop(txn);
-      await conversationStore.drop(txn);
-      await syncQueueStore.drop(txn);
     });
   }
 }

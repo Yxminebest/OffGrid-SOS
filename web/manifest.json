@@ -1,6 +1,6 @@
 {
-    "name": "offgrid_sos",
-    "short_name": "offgrid_sos",
+    "name": "SOSBROO",
+    "short_name": "SOSBROO",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

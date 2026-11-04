@@ -1,217 +1,196 @@
-Resolving dependencies...
-Downloading packages...
-  android_file_picker 2.1.0 (2.1.2 available)
-  clock 1.1.2 (1.1.3 available)
-  code_assets 1.2.1 (2.1.0 available)
-  cross_file 0.3.5+5 (0.4.0 available)
-  crypto 3.0.7 (3.0.8 available)
-  file_picker 13.1.0 (13.3.0 available)
-  file_picker_darwin 2.3.0 (2.4.0 available)
-  file_picker_web 4.1.0 (4.2.0 available)
-  file_selector_macos 0.9.5+1 (0.9.5+2 available)
-  geolocator 14.0.1 (14.1.2 available)
-  geolocator_android 5.1.1+1 (5.2.1 available)
-  geolocator_apple 2.3.15 (2.4.3 available)
-  geolocator_platform_interface 4.4.0 (4.4.1 available)
-  hooks 2.0.2 (2.2.0 available)
-  idb_shim 2.10.0+1 (2.11.1 available)
-  image_picker_ios 0.8.13+10 (0.8.13+13 available)
-  jni 1.1.0 (1.1.1 available)
-  latlong2 0.9.1 (0.10.1 available)
-  matcher 0.12.19 (0.12.20 available)
-  material_color_utilities 0.13.0 (0.13.1 available)
-  meta 1.18.0 (1.19.0 available)
-  objective_c 9.5.0 (9.6.2 available)
-  permission_handler 12.0.3 (13.0.2 available)
-  permission_handler_android 13.0.1 (14.1.1 available)
-  permission_handler_apple 9.6.2 (9.6.4 available)
-  petitparser 7.0.2 (7.1.0 available)
-  posix 6.5.2 (6.5.4 available)
-  record_use 0.6.0 (1.1.1 available)
-  shared_preferences_android 2.4.28 (2.5.4 available)
-  shared_preferences_foundation 2.5.7 (2.6.1 available)
-  stack_trace 1.12.1 (1.12.2 available)
-  test_api 0.7.11 (0.7.15 available)
-  vector_math 2.2.0 (2.4.4 available)
-  video_player_avfoundation 2.12.1 (2.12.3 available)
-  vm_service 15.3.0 (15.4.0 available)
-  web 1.1.1 (1.1.2 available)
-  xml 7.0.1 (7.1.0 available)
-Got dependencies!
-37 packages have newer versions incompatible with dependency constraints.
-Try `flutter pub outdated` for more information.
 00:00 +0: loading C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart
 00:00 +0: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: (setUpAll)
 00:00 +0: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: theme choice survives restarting the controller and rapid toggles
 00:00 +1: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: both palettes keep readable body and secondary text
 00:00 +2: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: login validates empty fields and theme toggle preserves input
-00:01 +3: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: login validates empty fields and theme toggle preserves input
-00:01 +4: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: login validates empty fields and theme toggle preserves input
-00:01 +5: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: login validates empty fields and theme toggle preserves input
-00:01 +6: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: login validates empty fields and theme toggle preserves input
-00:02 +7: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: login validates empty fields and theme toggle preserves input
-00:02 +8: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:02 +9: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:02 +10: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:02 +11: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:03 +12: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:03 +13: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:03 +14: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:03 +15: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:03 +16: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:04 +17: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:04 +18: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:04 +19: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:04 +20: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:05 +21: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:05 +22: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:05 +23: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:05 +24: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:05 +25: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:05 +26: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:05 +27: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:06 +28: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:06 +29: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:06 +30: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:07 +31: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:07 +32: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:07 +33: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:07 +34: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:07 +35: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:07 +36: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:07 +37: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:08 +38: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:08 +39: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:08 +40: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:08 +41: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:08 +42: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
-00:08 +43: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: profile dark provides a working appearance picker
-00:08 +44: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: profile dark provides a working appearance picker
-00:08 +45: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: profile dark provides a working appearance picker
-00:08 +46: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (dark)
-00:08 +47: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (dark)
-00:09 +48: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (dark)
-00:09 +49: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (dark)
-00:09 +50: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (dark)
-00:10 +51: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (dark)
-00:11 +52: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (dark)
-00:11 +53: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (dark)
-00:12 +54: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (dark)
-00:12 +55: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (dark)
-00:12 +56: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (dark)
-00:12 +57: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (dark)
-00:12 +58: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (dark)
-00:12 +59: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (dark)
-00:12 +60: C:/Users/user/Desktop/offgrid_sos/test/nearby_media_test.dart: three-node media transfer resumes when the relay returns without Internet
-00:13 +61: C:/Users/user/Desktop/offgrid_sos/test/nearby_protocol_test.dart: multi-hop private text is encrypted through B and ACK returns to A
-00:13 +62: C:/Users/user/Desktop/offgrid_sos/test/nearby_protocol_test.dart: multi-hop private text is encrypted through B and ACK returns to A
-00:13 +63: C:/Users/user/Desktop/offgrid_sos/test/nearby_protocol_test.dart: multi-hop private text is encrypted through B and ACK returns to A
-00:13 +64: C:/Users/user/Desktop/offgrid_sos/test/nearby_protocol_test.dart: multi-hop private text is encrypted through B and ACK returns to A
-00:13 +65: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: unified inbox shows one paired member across both transports
-00:14 +66: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: unified inbox shows one paired member across both transports
-00:14 +67: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:14 +68: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:15 +69: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:15 +70: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:15 +71: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:15 +72: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:16 +73: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:16 +74: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:16 +75: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:16 +76: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:16 +77: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:16 +78: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:16 +79: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:16 +80: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:16 +81: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:16 +82: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:16 +83: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:16 +84: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:16 +85: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:16 +86: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:17 +87: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:17 +88: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:17 +89: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:17 +90: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:17 +91: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:17 +92: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:17 +93: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:17 +94: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:17 +95: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:17 +96: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:17 +97: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:17 +98: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:17 +99: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:17 +100: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:18 +101: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:19 +102: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:19 +103: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
-00:19 +104: C:/Users/user/Desktop/offgrid_sos/test/notification_and_map_test.dart: location opens an internal map and copies coordinates without another app
-00:20 +105: C:/Users/user/Desktop/offgrid_sos/test/notification_and_map_test.dart: location opens an internal map and copies coordinates without another app
-00:20 +106: C:/Users/user/Desktop/offgrid_sos/test/nearby_media_test.dart: corrupted file never becomes delivered and clean retry creates one message
-00:20 +107: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: offline photo opens from a local file with large text
-00:20 +108: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:20 +109: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:20 +110: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:20 +111: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:20 +112: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:20 +113: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:20 +114: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:20 +115: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:20 +116: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:20 +117: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:20 +118: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:20 +119: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:21 +120: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:21 +121: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:21 +122: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:21 +123: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:21 +124: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:21 +125: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:21 +126: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:21 +127: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:21 +128: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:21 +129: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:21 +130: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:21 +131: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:21 +132: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:22 +133: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:22 +134: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:22 +135: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:22 +136: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:22 +137: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:22 +138: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:22 +139: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:22 +140: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:22 +141: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:22 +142: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:22 +143: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:22 +144: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:22 +145: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:22 +146: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:22 +147: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:22 +148: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:23 +149: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:23 +150: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:23 +151: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:23 +152: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:23 +153: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:23 +154: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:23 +155: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:23 +156: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:23 +157: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:23 +158: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:23 +159: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:23 +160: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:23 +161: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:23 +162: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:23 +163: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:23 +164: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
-00:23 +165: C:/Users/user/Desktop/offgrid_sos/test/sos_quick_needs_test.dart: quick choice on SOS page persists and publishes offline with no GPS fix
-00:23 +166: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: denied permission offers app settings and does not invent a position
-00:23 +167: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: denied permission offers app settings and does not invent a position
-00:24 +168: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: denied permission offers app settings and does not invent a position
-00:27 +169: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: province overview has no fabricated destination and explains outside GPS coverage
-00:31 +170: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: offline map remains usable on a small display with large text
-00:35 +171: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: (tearDownAll)
-00:35 +171: All tests passed!
+00:03 +3: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: guest entry returns to the root and completes identity setup
+00:04 +4: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: login light renders on phone and with keyboard
+00:04 +5: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: dashboard light keeps SOS accessible and opens it
+00:05 +6: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: profile light provides a working appearance picker
+00:05 +7: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: Nearby light explains the empty state
+00:06 +8: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: SOS light can open and cancel confirmation without sending
+00:07 +9: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: login dark renders on phone and with keyboard
+00:07 +10: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: dashboard dark keeps SOS accessible and opens it
+00:07 +11: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: profile dark provides a working appearance picker
+00:08 +12: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: Nearby dark explains the empty state
+00:08 +13: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: SOS dark can open and cancel confirmation without sending
+00:09 +14: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: small phone and enlarged text keep login and dashboard usable
+00:09 +15: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: grouped home actions keep their own destinations
+00:09 +16: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: compact appearance and SOS support large Thai text on small phones
+00:10 +17: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: SOS with saved coordinates offers an actionable map button
+00:10 +18: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: rescue history retains cancelled cases and their chat entry offline
+00:11 +19: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: unified inbox shows one paired member across both transports
+00:12 +20: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: Nearby chat previews and queues a shared GPS point offline
+00:13 +21: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: Nearby chat retains history and queues messages when disconnected
+00:13 +22: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: offline photo opens from a local file with large text
+00:14 +23: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: rescue mode uses blue and toggles duty in light appearance
+00:15 +24: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: rescue mode uses blue and toggles duty in dark appearance
+00:15 +25: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: remote rescue card is blue only while active and SOS opens chat directly
+00:15 +26: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: ordinary user cannot activate rescue mode
+00:16 +27: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: standalone Nearby route handles dark mode and enlarged text
+00:16 +28: C:/Users/user/Desktop/offgrid_sos/test/appearance_ui_test.dart: (tearDownAll)
+00:16 +28: loading C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart
+00:18 +28: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: (setUpAll)
+00:18 +28: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: bundled pack passes digest and serves every indexed tile without HTTP
+00:19 +29: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: both styles compile every layer, have Thai fonts and no remote dependencies
+00:19 +30: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (light)
+00:25 +31: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: real offline streets render and GPS marker appears (dark)
+00:29 +32: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: poor GPS shows honest uncertainty and recenters on own pin
+00:33 +33: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: GPS disabled retains real map and exposes system setting with stale warning
+00:37 +34: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: denied permission offers app settings and does not invent a position
+00:40 +35: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: province overview has no fabricated destination and explains outside GPS coverage
+00:44 +36: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: offline map remains usable on a small display with large text
+00:48 +37: C:/Users/user/Desktop/offgrid_sos/test/bundled_pathum_map_test.dart: (tearDownAll)
+00:48 +37: loading C:/Users/user/Desktop/offgrid_sos/test/chat_camera_test.dart
+00:50 +37: C:/Users/user/Desktop/offgrid_sos/test/chat_camera_test.dart: camera source and original Nearby destination are retained until saved
+00:50 +38: C:/Users/user/Desktop/offgrid_sos/test/chat_camera_test.dart: canceling camera creates no message or pending recovery
+00:50 +39: C:/Users/user/Desktop/offgrid_sos/test/chat_camera_test.dart: camera permission failure clears the empty draft so capture can retry
+00:50 +40: C:/Users/user/Desktop/offgrid_sos/test/chat_camera_test.dart: lost Android camera result returns only to its original account and cloud room
+00:50 +41: C:/Users/user/Desktop/offgrid_sos/test/chat_camera_test.dart: recorded video keeps type and unified destination through recovery save
+00:50 +42: C:/Users/user/Desktop/offgrid_sos/test/chat_camera_test.dart: oversized recorded video does not block the next capture
+00:50 +43: loading C:/Users/user/Desktop/offgrid_sos/test/chat_media_cache_test.dart
+00:52 +43: C:/Users/user/Desktop/offgrid_sos/test/chat_media_cache_test.dart: deleting one account removes only its durable media
+00:52 +44: C:/Users/user/Desktop/offgrid_sos/test/chat_media_cache_test.dart: download survives cache service restart and opens without requesting a URL
+00:52 +45: C:/Users/user/Desktop/offgrid_sos/test/chat_media_cache_test.dart: accounts cannot reuse another accounts cached attachment
+00:52 +46: C:/Users/user/Desktop/offgrid_sos/test/chat_media_cache_test.dart: concurrent renders share one complete download
+00:52 +47: C:/Users/user/Desktop/offgrid_sos/test/chat_media_cache_test.dart: failed download leaves no complete file and can be retried
+00:52 +48: C:/Users/user/Desktop/offgrid_sos/test/chat_media_cache_test.dart: outgoing original stays local and concurrent saves do not conflict
+00:52 +49: loading C:/Users/user/Desktop/offgrid_sos/test/cloud_inbox_cache_test.dart
+00:54 +49: C:/Users/user/Desktop/offgrid_sos/test/cloud_inbox_cache_test.dart: incoming text persists without opening room or marking it read
+00:55 +50: C:/Users/user/Desktop/offgrid_sos/test/cloud_inbox_cache_test.dart: partial inbox batch retains older history and local pending edits
+00:55 +51: C:/Users/user/Desktop/offgrid_sos/test/cloud_inbox_cache_test.dart: unknown room and stale account callbacks never enter local history
+00:55 +52: C:/Users/user/Desktop/offgrid_sos/test/cloud_inbox_cache_test.dart: explicit deleted cloud row clears only that synced message
+00:55 +53: loading C:/Users/user/Desktop/offgrid_sos/test/home_return_policy_test.dart
+00:57 +53: C:/Users/user/Desktop/offgrid_sos/test/home_return_policy_test.dart: new launch and permission dialogs do not trigger duplicate navigation
+00:57 +54: C:/Users/user/Desktop/offgrid_sos/test/home_return_policy_test.dart: real background returns home once on resume
+00:57 +55: C:/Users/user/Desktop/offgrid_sos/test/home_return_policy_test.dart: camera and picker return to originating screen
+00:57 +56: C:/Users/user/Desktop/offgrid_sos/test/home_return_policy_test.dart: failed external launch releases guard
+00:57 +57: loading C:/Users/user/Desktop/offgrid_sos/test/location_quality_test.dart
+00:59 +57: C:/Users/user/Desktop/offgrid_sos/test/location_quality_test.dart: poor jitter keeps recent real better fix without changing accuracy or time
+00:59 +58: C:/Users/user/Desktop/offgrid_sos/test/location_quality_test.dart: real movement and expired window do not freeze old position
+00:59 +59: C:/Users/user/Desktop/offgrid_sos/test/location_quality_test.dart: collection selects best fix and cancels stream at deadline
+00:59 +60: C:/Users/user/Desktop/offgrid_sos/test/location_quality_test.dart: no readings returns null, stream failure keeps real poor accuracy
+00:59 +61: C:/Users/user/Desktop/offgrid_sos/test/location_quality_test.dart: three distinct good fixes settle early without lowering reported accuracy
+00:59 +62: loading C:/Users/user/Desktop/offgrid_sos/test/mesh_attestation_test.dart
+01:01 +62: C:/Users/user/Desktop/offgrid_sos/test/mesh_attestation_test.dart: signed account and rescue role verify without network
+01:01 +63: C:/Users/user/Desktop/offgrid_sos/test/mesh_attestation_test.dart: production trust anchor rejects the test issuer
+01:01 +64: C:/Users/user/Desktop/offgrid_sos/test/mesh_attestation_test.dart: changing a signed role does not create a rescuer
+01:01 +65: C:/Users/user/Desktop/offgrid_sos/test/mesh_attestation_test.dart: copying proof to a different device or account fails
+01:01 +66: C:/Users/user/Desktop/offgrid_sos/test/mesh_attestation_test.dart: expired valid signature cannot retain rescue authorization
+01:01 +67: C:/Users/user/Desktop/offgrid_sos/test/mesh_attestation_test.dart: future-issued and excessive lifetime proofs fail closed
+01:01 +68: loading C:/Users/user/Desktop/offgrid_sos/test/mesh_crypto_test.dart
+01:03 +68: C:/Users/user/Desktop/offgrid_sos/test/mesh_crypto_test.dart: keys persist, TOFU rejects a replacement key, ciphertext binds recipient
+01:03 +69: loading C:/Users/user/Desktop/offgrid_sos/test/nearby_media_test.dart
+01:05 +69: C:/Users/user/Desktop/offgrid_sos/test/nearby_media_test.dart: photo and video travel A to C through B with bounded encrypted frames
+01:07 +70: C:/Users/user/Desktop/offgrid_sos/test/nearby_media_test.dart: three-node media transfer resumes when the relay returns without Internet
+01:08 +71: C:/Users/user/Desktop/offgrid_sos/test/nearby_media_test.dart: camera recovery with the same message ID does not create duplicates
+01:08 +72: C:/Users/user/Desktop/offgrid_sos/test/nearby_media_test.dart: photo is copied out of camera cache, chunked, verified and saved without cloud
+01:09 +73: C:/Users/user/Desktop/offgrid_sos/test/nearby_media_test.dart: video queued without a link sends after receiver connects
+01:10 +74: C:/Users/user/Desktop/offgrid_sos/test/nearby_media_test.dart: interrupted transfer resumes persisted bytes after receiver restarts
+01:10 +75: C:/Users/user/Desktop/offgrid_sos/test/nearby_media_test.dart: corrupted file never becomes delivered and clean retry creates one message
+01:11 +76: C:/Users/user/Desktop/offgrid_sos/test/nearby_media_test.dart: wrong recipient and unpaired identity cannot start a file transfer
+01:12 +77: C:/Users/user/Desktop/offgrid_sos/test/nearby_media_test.dart: empty and oversized files are rejected before queuing
+01:12 +78: loading C:/Users/user/Desktop/offgrid_sos/test/nearby_protocol_test.dart
+01:13 +78: C:/Users/user/Desktop/offgrid_sos/test/nearby_protocol_test.dart: fresh SOS coordinates reach peer and refresh never reactivates cancelled case
+01:14 +79: C:/Users/user/Desktop/offgrid_sos/test/nearby_protocol_test.dart: discovery advertises SOS and rescue before pairing without broadcasting coordinates
+01:15 +80: C:/Users/user/Desktop/offgrid_sos/test/nearby_protocol_test.dart: multi-hop private text is encrypted through B and ACK returns to A
+01:15 +81: C:/Users/user/Desktop/offgrid_sos/test/nearby_protocol_test.dart: location queues offline, reaches its peer encrypted, and receives an ACK
+01:16 +82: C:/Users/user/Desktop/offgrid_sos/test/nearby_protocol_test.dart: invalid shared coordinates never enter the send queue
+01:16 +83: C:/Users/user/Desktop/offgrid_sos/test/nearby_protocol_test.dart: three offline nodes recover a queued message after the relay restarts
+01:17 +84: C:/Users/user/Desktop/offgrid_sos/test/nearby_protocol_test.dart: a lost receipt retries the same offline message without duplicating receiver history
+01:18 +85: C:/Users/user/Desktop/offgrid_sos/test/nearby_protocol_test.dart: SOS and its cancellation cross three offline nodes and stay cancelled after reopening
+01:18 +86: C:/Users/user/Desktop/offgrid_sos/test/nearby_protocol_test.dart: tampered routed ciphertext cannot enter recipient history
+01:19 +87: C:/Users/user/Desktop/offgrid_sos/test/nearby_protocol_test.dart: ordinary member cannot enable rescue through service
+01:19 +88: C:/Users/user/Desktop/offgrid_sos/test/nearby_protocol_test.dart: route withdrawal removes unreachable C from A when B loses C
+01:20 +89: C:/Users/user/Desktop/offgrid_sos/test/nearby_protocol_test.dart: rescue state replays on late join and off replaces active state
+01:20 +90: C:/Users/user/Desktop/offgrid_sos/test/nearby_protocol_test.dart: direct messages and case replies reach only their recipient and survive restart
+01:20 +91: C:/Users/user/Desktop/offgrid_sos/test/nearby_protocol_test.dart: disconnected messages remain queued then receive a matching acknowledgment
+01:21 +92: C:/Users/user/Desktop/offgrid_sos/test/nearby_protocol_test.dart: a third peer cannot acknowledge another recipients message
+01:21 +93: C:/Users/user/Desktop/offgrid_sos/test/nearby_protocol_test.dart: cancelled SOS replays after disconnect and stale active revision is rejected
+01:22 +94: C:/Users/user/Desktop/offgrid_sos/test/nearby_protocol_test.dart: stopping one endpoint immediately removes it from the other peer list
+01:22 +95: C:/Users/user/Desktop/offgrid_sos/test/nearby_protocol_test.dart: wrong target private envelopes are neither stored nor relayed
+01:22 +96: loading C:/Users/user/Desktop/offgrid_sos/test/network_service_test.dart
+01:24 +96: C:/Users/user/Desktop/offgrid_sos/test/network_service_test.dart: Wi-Fi D2D without Internet stays offline; cloud recovery needs no radio change
+01:24 +97: C:/Users/user/Desktop/offgrid_sos/test/network_service_test.dart: no interface does not probe cloud and exceptions leave offline mode usable
+01:24 +98: loading C:/Users/user/Desktop/offgrid_sos/test/notification_and_map_test.dart
+01:26 +98: C:/Users/user/Desktop/offgrid_sos/test/notification_and_map_test.dart: map opens geo coordinates first and falls back to a browser
+01:26 +99: C:/Users/user/Desktop/offgrid_sos/test/notification_and_map_test.dart: invalid coordinates never launch another app
+01:26 +100: C:/Users/user/Desktop/offgrid_sos/test/notification_and_map_test.dart: location opens an internal map and copies coordinates without another app
+01:28 +101: C:/Users/user/Desktop/offgrid_sos/test/notification_and_map_test.dart: map controls preserve the saved point and recover tile failures
+01:29 +102: C:/Users/user/Desktop/offgrid_sos/test/notification_and_map_test.dart: map fits a small screen with large text
+01:29 +103: C:/Users/user/Desktop/offgrid_sos/test/notification_and_map_test.dart: active foreground thread suppresses alerts but background receipt posts a notification
+01:29 +104: C:/Users/user/Desktop/offgrid_sos/test/notification_and_map_test.dart: unified active room suppresses both radio and cloud alerts only in foreground
+01:29 +105: C:/Users/user/Desktop/offgrid_sos/test/notification_and_map_test.dart: notification platform failures do not lose chat processing
+01:29 +106: loading C:/Users/user/Desktop/offgrid_sos/test/offline_direction_test.dart
+01:31 +106: C:/Users/user/Desktop/offgrid_sos/test/offline_direction_test.dart: distance and north/east bearings are calculated entirely from coordinates
+01:31 +107: C:/Users/user/Desktop/offgrid_sos/test/offline_direction_test.dart: offline GPS guide shows distance, direction and stale-location warning
+01:33 +108: C:/Users/user/Desktop/offgrid_sos/test/offline_direction_test.dart: missing GPS leaves target coordinates readable and permits retry
+01:34 +109: loading C:/Users/user/Desktop/offgrid_sos/test/offline_regression_test.dart
+01:35 +109: C:/Users/user/Desktop/offgrid_sos/test/offline_regression_test.dart: stable cloud camera ID makes retry atomic and destination-bound
+01:36 +110: C:/Users/user/Desktop/offgrid_sos/test/offline_regression_test.dart: old SOS upload cannot acknowledge an edit made while uploading
+01:36 +111: C:/Users/user/Desktop/offgrid_sos/test/offline_regression_test.dart: stopping SOS during an upload retains the cancellation job
+01:36 +112: C:/Users/user/Desktop/offgrid_sos/test/offline_regression_test.dart: old failed upload does not delay a newer local edit
+01:36 +113: C:/Users/user/Desktop/offgrid_sos/test/offline_regression_test.dart: concurrent edits and stop preserve both changes in one queue job
+01:36 +114: C:/Users/user/Desktop/offgrid_sos/test/offline_regression_test.dart: old message upload cannot delete a pending deletion locally
+01:36 +115: C:/Users/user/Desktop/offgrid_sos/test/offline_regression_test.dart: finishing media upload preserves newer edits and pending deletion
+01:36 +116: C:/Users/user/Desktop/offgrid_sos/test/offline_regression_test.dart: retry backoff blocks jobs until due and manual retry is owner scoped
+01:36 +117: C:/Users/user/Desktop/offgrid_sos/test/offline_regression_test.dart: Guest SOS stays local and preserves the age of a cached location
+01:36 +118: C:/Users/user/Desktop/offgrid_sos/test/offline_regression_test.dart: legacy SOS rows do not claim their location is current
+01:36 +119: C:/Users/user/Desktop/offgrid_sos/test/offline_regression_test.dart: new Nearby service restores the same identity and active case
+01:36 +120: C:/Users/user/Desktop/offgrid_sos/test/offline_regression_test.dart: cancellation retains the persisted case ID even without a restored active SOS
+01:36 +121: C:/Users/user/Desktop/offgrid_sos/test/offline_regression_test.dart: publishing an old SOS snapshot cannot reactivate a cancelled case
+01:36 +122: C:/Users/user/Desktop/offgrid_sos/test/offline_regression_test.dart: overlapping initialization, logout and login finish on the new account
+01:36 +123: C:/Users/user/Desktop/offgrid_sos/test/offline_regression_test.dart: reset and account switch clear private Nearby state
+01:36 +124: C:/Users/user/Desktop/offgrid_sos/test/offline_regression_test.dart: Android 11 requests location without unsupported modern permissions
+01:36 +125: C:/Users/user/Desktop/offgrid_sos/test/offline_regression_test.dart: Android 12 and 12L request Bluetooth but not Android 13 Wi-Fi permission
+01:36 +126: C:/Users/user/Desktop/offgrid_sos/test/offline_regression_test.dart: Android 13+ requests nearby Wi-Fi as well as Bluetooth and location
+01:37 +127: loading C:/Users/user/Desktop/offgrid_sos/test/offline_startup_test.dart
+01:38 +127: C:/Users/user/Desktop/offgrid_sos/test/offline_startup_test.dart: cached member opens without initializing a cloud SDK or accessing a network
+01:39 +128: C:/Users/user/Desktop/offgrid_sos/test/offline_startup_test.dart: first-time guest creation and reopening require no cloud session
+01:39 +129: C:/Users/user/Desktop/offgrid_sos/test/offline_startup_test.dart: removed identity marker prevents old cached fields from logging in again
+01:39 +130: C:/Users/user/Desktop/offgrid_sos/test/offline_startup_test.dart: incomplete cached identity does not create an unusable member
+01:39 +131: C:/Users/user/Desktop/offgrid_sos/test/offline_startup_test.dart: radio preference survives process/session initialization and manual stop is respected
+01:39 +132: C:/Users/user/Desktop/offgrid_sos/test/offline_startup_test.dart: manual stop cancels Bluetooth startup while permission checks are pending
+01:39 +133: C:/Users/user/Desktop/offgrid_sos/test/offline_startup_test.dart: late native Bluetooth startup cannot resurrect a stopped transport
+01:39 +134: C:/Users/user/Desktop/offgrid_sos/test/offline_startup_test.dart: relay phone queues simultaneous pairing confirmations with separate security codes
+01:39 +135: loading C:/Users/user/Desktop/offgrid_sos/test/rescue_status_test.dart
+01:41 +135: C:/Users/user/Desktop/offgrid_sos/test/rescue_status_test.dart: approval refreshes role, alerts once, and keeps history offline after restart
+01:41 +136: C:/Users/user/Desktop/offgrid_sos/test/rescue_status_test.dart: existing approval gets one notice and another account cannot see its cache
+01:41 +137: C:/Users/user/Desktop/offgrid_sos/test/rescue_status_test.dart: rejection reason remains available when notification delivery fails
+01:41 +138: C:/Users/user/Desktop/offgrid_sos/test/rescue_status_test.dart: old approval cannot grant a role or announce a revoked rescue permission
+01:41 +139: C:/Users/user/Desktop/offgrid_sos/test/rescue_status_test.dart: verification history displays approval, organization and local dates
+01:43 +140: C:/Users/user/Desktop/offgrid_sos/test/rescue_status_test.dart: a result that arrives after account change is discarded
+01:43 +141: loading C:/Users/user/Desktop/offgrid_sos/test/sos_quick_needs_test.dart
+01:45 +141: C:/Users/user/Desktop/offgrid_sos/test/sos_quick_needs_test.dart: multiple urgent needs are combined in a stable order without network data
+01:45 +142: C:/Users/user/Desktop/offgrid_sos/test/sos_quick_needs_test.dart: SOS presets are selectable without keyboard and edit keeps details without duplicates
+01:48 +143: C:/Users/user/Desktop/offgrid_sos/test/sos_quick_needs_test.dart: blank SOS still allows a general emergency request and cancel does not submit
+01:48 +144: C:/Users/user/Desktop/offgrid_sos/test/sos_quick_needs_test.dart: quick choice on SOS page persists and publishes offline with no GPS fix
+01:50 +145: C:/Users/user/Desktop/offgrid_sos/test/sos_quick_needs_test.dart: legacy rescue chat title resolves to member and only active rescue status changes its label
+01:50 +146: C:/Users/user/Desktop/offgrid_sos/test/sos_quick_needs_test.dart: SOS picker scrolls on small display with large text and permits submit
+01:51 +147: loading C:/Users/user/Desktop/offgrid_sos/test/sync_service_test.dart
+01:52 +147: C:/Users/user/Desktop/offgrid_sos/test/sync_service_test.dart: archive media uploads once even if metadata upsert must retry
+01:53 +148: C:/Users/user/Desktop/offgrid_sos/test/sync_service_test.dart: Nearby-only outbox archives automatically and ACK changes requeue safely
+01:54 +149: C:/Users/user/Desktop/offgrid_sos/test/sync_service_test.dart: archive completion cannot clear a newer local acknowledgment
+01:54 +150: C:/Users/user/Desktop/offgrid_sos/test/sync_service_test.dart: restore imports account archive without replacing a pending local message
+01:54 +151: C:/Users/user/Desktop/offgrid_sos/test/sync_service_test.dart: missing archive migration retains local data and retries rather than marking synced
+01:54 +152: C:/Users/user/Desktop/offgrid_sos/test/sync_service_test.dart: concurrent sync calls share a lock during the connectivity await
+01:54 +153: C:/Users/user/Desktop/offgrid_sos/test/sync_service_test.dart: attachment original is preserved before upload clears database bytes
+01:54 +154: C:/Users/user/Desktop/offgrid_sos/test/sync_service_test.dart: edit during a real pending response is uploaded on the next pass
+01:54 +155: C:/Users/user/Desktop/offgrid_sos/test/sync_service_test.dart: automatic retry runs without a connectivity change
+01:54 +156: C:/Users/user/Desktop/offgrid_sos/test/sync_service_test.dart: stop waits for an in-flight upload and leaves other jobs pending
+01:54 +157: loading C:/Users/user/Desktop/offgrid_sos/test/unified_chat_test.dart
+01:56 +157: C:/Users/user/Desktop/offgrid_sos/test/unified_chat_test.dart: device and member history merge by paired ID, never by name
+01:57 +158: C:/Users/user/Desktop/offgrid_sos/test/unified_chat_test.dart: offline queued message later uploads same ID and original timestamp
+01:57 +159: C:/Users/user/Desktop/offgrid_sos/test/unified_chat_test.dart: cloud room offline queue finds paired radio after reconnect
+01:57 +160: C:/Users/user/Desktop/offgrid_sos/test/unified_chat_test.dart: offline location keeps coordinates accuracy and timestamp
+01:57 +161: C:/Users/user/Desktop/offgrid_sos/test/unified_chat_test.dart: new owner cannot send into previous owners radio session
+01:57 +162: C:/Users/user/Desktop/offgrid_sos/test/unified_chat_test.dart: radio retry proceeds while cloud room resolution is pending
+01:58 +163: C:/Users/user/Desktop/offgrid_sos/test/unified_chat_test.dart: cloud queued old location remains labelled old on radio
+01:58 +164: C:/Users/user/Desktop/offgrid_sos/test/unified_chat_test.dart: account change during contact lookup blocks queued send
+01:58 +165: C:/Users/user/Desktop/offgrid_sos/test/unified_chat_test.dart: duplicate transport retries preserve one message ID
+01:58 +166: C:/Users/user/Desktop/offgrid_sos/test/unified_chat_test.dart: oversized radio text is rejected instead of silently disappearing
+01:58 +167: C:/Users/user/Desktop/offgrid_sos/test/unified_chat_test.dart: blank text cannot report a successful queue write
+01:58 +168: C:/Users/user/Desktop/offgrid_sos/test/unified_chat_test.dart: stopping service prevents background cloud work
+01:58 +169: C:/Users/user/Desktop/offgrid_sos/test/unified_chat_test.dart: online inbox preview and unread work before room history is downloaded
+01:58 +170: C:/Users/user/Desktop/offgrid_sos/test/unified_chat_test.dart: contact bindings are private to their local owner and clear with account data
+01:58 +171: All tests passed!

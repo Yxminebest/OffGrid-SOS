@@ -8,10 +8,26 @@ class AppNotifications with WidgetsBindingObserver {
   static final instance = AppNotifications();
   static const channel = MethodChannel('com.offgridsos/platform');
   final enabled = ValueNotifier<bool>(false);
+  final sound = ValueNotifier<bool>(true);
+  final taps = ValueNotifier<int>(0);
+  bool _listeningForTaps = false;
+
+  /// Notification taps are delivered through a counter rather than carrying
+  /// payloads in the stream. The payload remains in Android's pending slot and
+  /// is consumed exactly once by [takeChatTap]/[takeSosTap].
+  void listenForTaps() {
+    if (!supported || _listeningForTaps) return;
+    _listeningForTaps = true;
+    channel.setMethodCallHandler((call) async {
+      if (call.method == 'notificationTap') taps.value++;
+    });
+  }
+
   final background = ValueNotifier<bool>(false);
   bool _observing = false;
   bool foreground = true;
   String? activeThread;
+  Object? activeRoomToken;
   final activeThreadAliases = <String>{};
   bool get supported =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
@@ -27,6 +43,8 @@ class AppNotifications with WidgetsBindingObserver {
     try {
       enabled.value =
           await channel.invokeMethod<bool>('notificationsEnabled') ?? false;
+      sound.value =
+          await channel.invokeMethod<bool>('notificationSound') ?? true;
     } catch (_) {}
   }
 
@@ -44,6 +62,16 @@ class AppNotifications with WidgetsBindingObserver {
     } catch (_) {
       return false;
     }
+  }
+
+  Future<void> setSound(bool value) async {
+    if (!supported) return;
+    try {
+      final saved = await channel.invokeMethod<bool>('setNotificationSound', {
+        'enabled': value,
+      });
+      if (saved != null) sound.value = saved;
+    } catch (_) {}
   }
 
   Future<void> startBackground() async {
@@ -82,6 +110,9 @@ class AppNotifications with WidgetsBindingObserver {
     required String title,
     required String text,
     String? thread,
+    String? sosDevice,
+    String? owner,
+    String? transport,
   }) async {
     if (!supported ||
         (foreground &&
@@ -95,7 +126,43 @@ class AppNotifications with WidgetsBindingObserver {
         'title': title,
         'text': text,
         'thread': thread,
+        'sosDevice': sosDevice,
+        'owner': owner,
+        'transport': transport,
       });
     } catch (_) {}
+  }
+
+  Future<Map<String, String>?> takeSosTap() async {
+    if (!supported) return null;
+    try {
+      final data = await channel.invokeMapMethod<String, String>('takeSosTap');
+      return data;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> cancel(String id) async {
+    if (!supported) return;
+    try {
+      await channel.invokeMethod<void>('cancelMessage', {'id': id});
+    } catch (_) {}
+  }
+
+  Future<Map<String, String>?> takeChatTap() async {
+    if (!supported) return null;
+    try {
+      final data = await channel.invokeMapMethod<String, String>('takeChatTap');
+      if (data == null ||
+          (data['owner']?.isEmpty ?? true) ||
+          (data['thread']?.isEmpty ?? true) ||
+          !['nearby', 'cloud'].contains(data['transport'])) {
+        return null;
+      }
+      return data;
+    } catch (_) {
+      return null;
+    }
   }
 }

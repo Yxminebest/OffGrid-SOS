@@ -21,10 +21,10 @@ class LocalSosRecord {
   final String id;
   final int revision;
 
-  /// Guest device id or signed-in user id used to scope local records.
+  /// Local owner identifier used to scope records.
   final String ownerLocalId;
 
-  /// Supabase auth user id. Null for Guest.
+  /// Supabase auth user id; nullable for legacy records.
   final String? ownerUserId;
 
   final String message;

@@ -138,7 +138,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
           ),
         ),
       );
-      if (id != null) await mesh.connect(id);
+      if (id != null) await mesh.connect(id, force: true);
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -156,31 +156,25 @@ class _NearbyScreenState extends State<NearbyScreen> {
   Widget build(BuildContext context) {
     final supported =
         !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
-    final cases = <String, MeshMessage>{};
-    for (final message in mesh.inbox) {
-      final data = message.data['data'];
-      if (message.kind == 'sos' &&
-          data is Map &&
-          data['caseId'] is String &&
-          message.data['origin'] != mesh.deviceId) {
-        cases.putIfAbsent(
-          '${message.data['origin']}:${data['caseId']}',
-          () => message,
+    final activeCases = mesh.currentSosCases;
+    final relayed = mesh.reachablePeers.where((p) => p.hops > 1).toList();
+    final devices = mesh.visiblePeers;
+    bool sosPeer(String endpoint) =>
+        mesh.discoveredModes[endpoint] == 'S' ||
+        mesh.currentSosCases.any(
+          (m) => m.data['origin'] == mesh.identities[endpoint]?.deviceId,
         );
-      }
+    bool activeRescuer(String endpoint) {
+      final peer = mesh.identities[endpoint];
+      return peer != null && mesh.isPeerRescueActive(peer.deviceId);
     }
-    final activeCases = cases.values
-        .where((m) => (m.data['data'] as Map)['active'] == true)
-        .toList();
-    final rescuers = <String, MeshMessage>{};
-    for (final m in mesh.inbox.where(
-      (m) => m.kind == 'rescue' && m.data['origin'] != mesh.deviceId,
-    )) {
-      rescuers.putIfAbsent(m.data['origin'].toString(), () => m);
-    }
+
+    bool highlighted(String endpoint) =>
+        sosPeer(endpoint) || activeRescuer(endpoint);
+
     return Scaffold(
       appBar: Navigator.of(context).canPop()
-          ? AppBar(title: const Text('คนใกล้เคียง'))
+          ? AppBar(title: const Text('บุคคลใกล้เคียง'))
           : null,
       body: SafeArea(
         child: Center(
@@ -189,10 +183,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(22, 24, 22, 28),
               children: [
-                const PageHeader(
-                  title: 'คนใกล้เคียง',
-                  subtitle: 'คุย ส่งรูป และแชร์ตำแหน่ง แม้ไม่มีอินเทอร์เน็ต',
-                ),
+                const PageHeader(title: 'บุคคลใกล้เคียง', subtitle: ''),
                 AppCard(
                   backgroundColor: context.colors.surfaceSoft,
                   borderColor: Colors.transparent,
@@ -215,15 +206,17 @@ class _NearbyScreenState extends State<NearbyScreen> {
                                 Text(
                                   mesh.running
                                       ? (mesh.connected.isNotEmpty
-                                            ? 'พร้อมสนทนาออฟไลน์'
-                                            : 'กำลังค้นหาคนใกล้เคียง')
+                                            ? 'พร้อมสนทนา'
+                                            : 'กำลังค้นหาบุคคลใกล้เคียง')
                                       : 'เริ่มต้นการเชื่อมต่อ',
                                   style: Theme.of(
                                     context,
                                   ).textTheme.titleMedium,
                                 ),
                                 Text(
-                                  '${mesh.connected.length} เครื่องที่เชื่อมต่อ',
+                                  relayed.isEmpty
+                                      ? '${mesh.connectedDeviceCount} เครื่องที่เชื่อมต่อ'
+                                      : '${mesh.connectedDeviceCount} เชื่อมตรง · ${relayed.length} ผ่านตัวกลาง',
                                   style: TextStyle(
                                     color: context.colors.muted,
                                     fontSize: 13,
@@ -233,14 +226,6 @@ class _NearbyScreenState extends State<NearbyScreen> {
                             ),
                           ),
                         ],
-                      ),
-                      const SizedBox(height: 14),
-                      Text(
-                        supported ? mesh.status : 'Nearby รองรับ Android',
-                        style: TextStyle(
-                          color: context.colors.muted,
-                          fontSize: 13,
-                        ),
                       ),
                       const SizedBox(height: 18),
                       if (supported)
@@ -279,14 +264,6 @@ class _NearbyScreenState extends State<NearbyScreen> {
                           label: const Text('เปิดบริการตำแหน่ง'),
                         ),
                       const SizedBox(height: 10),
-                      Text(
-                        'เปิด Wi-Fi และ Bluetooth ทั้งสองเครื่อง ไม่ต้องต่อเราเตอร์หรือฮอตสปอต',
-                        style: TextStyle(
-                          color: context.colors.muted,
-                          fontSize: 12,
-                          height: 1.6,
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -296,24 +273,6 @@ class _NearbyScreenState extends State<NearbyScreen> {
                     onPressed: bluetooth,
                     icon: const Icon(Icons.bluetooth_rounded),
                     label: const Text('ใช้ Bluetooth เมื่อปิด Wi-Fi'),
-                  ),
-                const SizedBox(height: 12),
-                if (mesh.connected.isEmpty)
-                  AppCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'เชื่อมต่อใน 3 ขั้นตอน',
-                          style: Theme.of(context).textTheme.titleSmall,
-                        ),
-                        const SizedBox(height: 10),
-                        const Text(
-                          '1  เปิดค้นหาในแอปทั้งสองเครื่อง\n2  เลือกชื่อคนที่ต้องการติดต่อ\n3  ยืนยันรหัสตรงกัน แล้วเริ่มแชท',
-                          style: TextStyle(height: 1.9),
-                        ),
-                      ],
-                    ),
                   ),
                 const SizedBox(height: 18),
                 ValueListenableBuilder<bool>(
@@ -349,7 +308,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
                       ),
                     ),
                     Text(
-                      '${mesh.peers.length} เครื่อง',
+                      '${devices.length + relayed.length} เครื่อง',
                       style: TextStyle(
                         color: context.colors.muted,
                         fontSize: 12,
@@ -358,42 +317,32 @@ class _NearbyScreenState extends State<NearbyScreen> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                if (mesh.peers.isEmpty)
+                if (devices.isEmpty && relayed.isEmpty)
                   const AppCard(
                     child: EmptyState(
                       icon: Icons.devices_other_outlined,
                       title: 'ยังไม่มีอุปกรณ์ใกล้เคียง',
-                      description:
-                          'กดเริ่มค้นหาบน Android ทั้งสองเครื่อง\nจากนั้นจับคู่และยืนยันรหัสให้ตรงกัน',
+                      description: '',
                     ),
                   ),
-                for (final entry in mesh.peers.entries)
+                for (final entry in devices.entries)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 10),
                     child: AppCard(
                       padding: EdgeInsets.zero,
-                      backgroundColor: mesh.discoveredModes[entry.key] == 'S'
-                          ? Theme.of(context).colorScheme.errorContainer
-                          : (mesh.discoveredModes[entry.key] == 'R' &&
-                                mesh.identities[entry.key]?.verifiedRescuer ==
-                                    true)
-                          ? const Color(0xFF1859A9)
+                      backgroundColor: sosPeer(entry.key)
+                          ? AppColors.sos
+                          : activeRescuer(entry.key)
+                          ? AppColors.rescueStrong
                           : null,
                       child: ListTile(
-                        textColor:
-                            (mesh.discoveredModes[entry.key] == 'R' &&
-                                mesh.identities[entry.key]?.verifiedRescuer ==
-                                    true)
-                            ? Colors.white
-                            : null,
+                        iconColor: highlighted(entry.key) ? Colors.white : null,
+                        textColor: highlighted(entry.key) ? Colors.white : null,
                         leading: Icon(
                           mesh.connected.contains(entry.key)
                               ? Icons.bluetooth_connected_rounded
                               : Icons.phone_android_rounded,
-                          color:
-                              (mesh.discoveredModes[entry.key] == 'R' &&
-                                  mesh.identities[entry.key]?.verifiedRescuer ==
-                                      true)
+                          color: highlighted(entry.key)
                               ? Colors.white
                               : context.colors.info,
                         ),
@@ -412,20 +361,20 @@ class _NearbyScreenState extends State<NearbyScreen> {
                         trailing: mesh.connected.contains(entry.key)
                             ? Icon(
                                 Icons.chat_bubble_outline_rounded,
-                                color:
-                                    (mesh.discoveredModes[entry.key] == 'R' &&
-                                        mesh
-                                                .identities[entry.key]
-                                                ?.verifiedRescuer ==
-                                            true)
+                                color: highlighted(entry.key)
                                     ? Colors.white
                                     : context.colors.info,
                               )
                             : TextButton(
                                 onPressed: () {
                                   _chatAfterPairing = entry.key;
-                                  mesh.connect(entry.key);
+                                  mesh.connect(entry.key, force: true);
                                 },
+                                style: TextButton.styleFrom(
+                                  foregroundColor: highlighted(entry.key)
+                                      ? Colors.white
+                                      : null,
+                                ),
                                 child: const Text('เชื่อมต่อ'),
                               ),
                         onTap: () {
@@ -434,13 +383,13 @@ class _NearbyScreenState extends State<NearbyScreen> {
                             chat(peer);
                           } else {
                             _chatAfterPairing = entry.key;
-                            mesh.connect(entry.key);
+                            mesh.connect(entry.key, force: true);
                           }
                         },
                       ),
                     ),
                   ),
-                for (final peer in mesh.reachablePeers.where((p) => p.hops > 1))
+                for (final peer in relayed)
                   ListTile(
                     leading: const Icon(Icons.alt_route_rounded),
                     title: Text(peer.name),
@@ -448,48 +397,11 @@ class _NearbyScreenState extends State<NearbyScreen> {
                     trailing: const Icon(Icons.chat_bubble_outline),
                     onTap: () => chat(peer),
                   ),
-                for (final entry in rescuers.entries.where(
-                  (e) =>
-                      (e.value.data['data'] as Map)['active'] == true &&
-                      mesh.isPeerRescueActive(e.key),
-                ))
-                  Card(
-                    color: const Color(0xFF1859A9),
-                    child: ListTile(
-                      textColor: Colors.white,
-                      iconColor: Colors.white,
-                      leading: const Icon(Icons.health_and_safety_rounded),
-                      title: Text(
-                        entry.value.data['sender']?.toString() ?? 'หน่วยกู้ภัย',
-                      ),
-                      subtitle: const Text('เปิดโหมดกู้ภัย • แตะเพื่อแชท'),
-                      onTap: () => chat(mesh.peerForDevice(entry.key)!),
-                    ),
-                  ),
                 const SizedBox(height: 16),
-                AppCard(
-                  padding: const EdgeInsets.all(18),
-                  child: Row(
-                    children: [
-                      Icon(Icons.forum_outlined, color: context.colors.info),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'ข้อความ Nearby อยู่ในแท็บแชท พร้อมประวัติและสถานะการส่ง',
-                          style: TextStyle(
-                            color: context.colors.muted,
-                            fontSize: 13,
-                            height: 1.6,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
                 if (activeCases.isNotEmpty) ...[
                   const SizedBox(height: 24),
                   Text(
-                    'SOS ใกล้เคียง',
+                    'SOS ที่ติดต่อได้',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 12),
@@ -500,6 +412,8 @@ class _NearbyScreenState extends State<NearbyScreen> {
                         final lat = (body['lat'] as num?)?.toDouble(),
                             lng = (body['lng'] as num?)?.toDouble();
                         return AppCard(
+                          borderColor: AppColors.sos,
+                          backgroundColor: AppColors.sos.withValues(alpha: .12),
                           margin: const EdgeInsets.only(bottom: 12),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -520,7 +434,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
                                   ),
                                 ),
                                 child: Text(
-                                  'SOS · ${message.data['sender'] ?? 'คนใกล้เคียง'}',
+                                  'SOS · ${message.data['sender'] ?? 'บุคคลใกล้เคียง'}',
                                   style: TextStyle(
                                     color: Theme.of(context).colorScheme.error,
                                     fontWeight: FontWeight.w700,

@@ -19,10 +19,16 @@ import '../rescue/rescue_history_screen.dart';
 import 'account_settings_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key, required this.me, required this.onLogout});
+  const ProfileScreen({
+    super.key,
+    required this.me,
+    required this.onLogout,
+    this.onUpdated,
+  });
 
   final AppUser me;
   final Future<void> Function() onLogout;
+  final ValueChanged<AppUser>? onUpdated;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -36,6 +42,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void initState() {
     super.initState();
     _me = widget.me;
+    AppNotifications.instance.refresh();
   }
 
   @override
@@ -54,6 +61,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       if (!mounted) return;
       setState(() => _me = latest);
+      widget.onUpdated?.call(latest);
       await RescueStatusService.instance.refresh();
     } on AuthServiceException catch (e) {
       if (!mounted) return;
@@ -102,6 +110,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       if (!mounted) return;
       setState(() => _me = updated);
+      widget.onUpdated?.call(updated);
     } on AuthServiceException catch (e) {
       if (!mounted) return;
       _error(e.message);
@@ -142,7 +151,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(_me.isMember ? 'ออกจากระบบ?' : 'ออกจากโหมดผู้เยี่ยมชม?'),
+        title: const Text('ออกจากระบบ?'),
         content: const Text(
           'Nearby จะหยุดการเชื่อมต่อ ข้อมูลที่บันทึกในเครื่องจะยังอยู่',
         ),
@@ -178,7 +187,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       AppRole.admin => 'ผู้ดูแลระบบ',
       AppRole.rescuer => 'หน่วยกู้ภัยที่ยืนยันแล้ว',
       AppRole.user => 'สมาชิก',
-      AppRole.guest => 'ผู้เยี่ยมชม',
     };
     return SafeArea(
       child: Center(
@@ -192,7 +200,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               children: [
                 PageHeader(
                   title: 'โปรไฟล์',
-                  subtitle: 'บัญชีและการตั้งค่าของคุณ',
+                  subtitle: '',
                   action: _me.isMember
                       ? IconButton(
                           tooltip: 'รีเฟรชโปรไฟล์',
@@ -303,9 +311,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ListTile(
                           leading: const Icon(Icons.manage_accounts_outlined),
                           title: const Text('จัดการบัญชี'),
-                          subtitle: const Text(
-                            'ข้อมูลส่วนตัว อีเมล และรหัสผ่าน',
-                          ),
                           trailing: const Icon(Icons.chevron_right_rounded),
                           onTap: _busy
                               ? null
@@ -317,6 +322,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                         onUpdated: (updated) {
                                           if (mounted) {
                                             setState(() => _me = updated);
+                                            widget.onUpdated?.call(updated);
                                           }
                                         },
                                         onDeleted: widget.onLogout,
@@ -357,18 +363,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               title: const Text(
                                 'สถานะและประวัติคำขอสิทธิ์กู้ภัย',
                               ),
-                              subtitle: Text(
-                                _me.isVerifiedRescuer
-                                    ? 'อนุมัติสิทธิ์แล้ว • ดูประวัติการตรวจสอบ'
-                                    : switch (latest?['status']) {
-                                        'pending' => 'กำลังรอตรวจสอบ',
-                                        'rejected' =>
-                                          'ไม่ผ่านการอนุมัติ • ดูเหตุผล',
-                                        'approved' =>
-                                          'มีผลอนุมัติในประวัติ • ดูสิทธิ์ปัจจุบัน',
-                                        _ => 'ดูผลตรวจสอบและประวัติคำขอ',
-                                      },
-                              ),
+                              subtitle: _me.isVerifiedRescuer
+                                  ? null
+                                  : Text(switch (latest?['status']) {
+                                      'pending' => 'กำลังรอตรวจสอบ',
+                                      'rejected' =>
+                                        'ไม่ผ่านการอนุมัติ • ดูเหตุผล',
+                                      'approved' =>
+                                        'มีผลอนุมัติในประวัติ • ดูสิทธิ์ปัจจุบัน',
+                                      _ => 'ดูผลตรวจสอบและประวัติคำขอ',
+                                    }),
                               trailing: const Icon(Icons.chevron_right_rounded),
                               onTap: () => Navigator.of(context).push(
                                 MaterialPageRoute(
@@ -383,9 +387,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ListTile(
                           leading: const Icon(Icons.history),
                           title: const Text('ประวัติเคส SOS ที่ได้รับ'),
-                          subtitle: const Text(
-                            'เคสที่กำลังขอความช่วยเหลือและเคสที่หยุด SOS แล้ว',
-                          ),
+
                           trailing: const Icon(Icons.chevron_right_rounded),
                           onTap: () => Navigator.of(context).push(
                             MaterialPageRoute(
@@ -399,7 +401,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             Icons.admin_panel_settings_outlined,
                           ),
                           title: const Text('จัดการหน่วยกู้ภัย'),
-                          subtitle: const Text('ตรวจสอบและอนุมัติคำขอ'),
                           trailing: const Icon(Icons.chevron_right_rounded),
                           onTap: () async {
                             await Navigator.of(context).push(
@@ -413,18 +414,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       if (!kIsWeb) ...[
                         ValueListenableBuilder<bool>(
-                          valueListenable: AppNotifications.instance.enabled,
-                          builder: (context, enabled, _) => ListTile(
-                            leading: const Icon(Icons.notifications_outlined),
-                            title: const Text('การแจ้งเตือนข้อความ'),
-                            subtitle: Text(
-                              enabled ? 'เปิดอยู่' : 'ปิดอยู่ · แตะเพื่ออนุญาต',
-                            ),
-                            onTap: () async {
-                              if (!await AppNotifications.instance.request()) {
-                                await openAppSettings();
-                              }
-                            },
+                          valueListenable: AppNotifications.instance.sound,
+                          builder: (context, enabled, _) => SwitchListTile(
+                            secondary: const Icon(Icons.volume_up_outlined),
+                            title: const Text('เสียงแจ้งเตือนข้อความ'),
+                            value: enabled,
+                            onChanged: (v) =>
+                                AppNotifications.instance.setSound(v),
                           ),
                         ),
                         ValueListenableBuilder<bool>(
@@ -434,7 +430,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               Icons.mark_chat_unread_outlined,
                             ),
                             title: const Text('รับข้อความเบื้องหลัง'),
-                            subtitle: const Text('มีแถบสถานะขณะบริการทำงาน'),
                             value: enabled,
                             onChanged: (v) =>
                                 AppNotifications.instance.setBackground(v),
@@ -445,9 +440,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ListTile(
                           leading: const Icon(Icons.tune_rounded),
                           title: const Text('สิทธิ์ของแอป'),
-                          subtitle: const Text(
-                            'จัดการตำแหน่งและอุปกรณ์ใกล้เคียง',
-                          ),
                           trailing: const Icon(
                             Icons.open_in_new_rounded,
                             size: 18,
@@ -457,9 +449,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ListTile(
                         leading: const Icon(Icons.privacy_tip_outlined),
                         title: const Text('ข้อมูลและความเป็นส่วนตัว'),
-                        subtitle: const Text(
-                          'เข้าใจวิธีเก็บและส่งข้อมูลของคุณ',
-                        ),
                         trailing: const Icon(Icons.chevron_right_rounded),
                         onTap: _privacyInfo,
                       ),
@@ -470,16 +459,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 OutlinedButton.icon(
                   onPressed: _busy ? null : _logout,
                   icon: const Icon(Icons.logout_rounded),
-                  label: Text(
-                    _me.isMember ? 'ออกจากระบบ' : 'ออกจากโหมดผู้เยี่ยมชม',
-                  ),
+                  label: const Text('ออกจากระบบ'),
                 ),
                 const SizedBox(height: 20),
-                Text(
-                  'Offgrid SOS · อยู่ใกล้ แม้ไกลสัญญาณ',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: context.colors.muted, fontSize: 12),
-                ),
               ],
             ),
           ),

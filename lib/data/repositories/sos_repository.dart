@@ -104,9 +104,18 @@ class SosRepository {
   /// A fresh fix updates the existing case; never reactivates a stopped SOS.
   Future<LocalSosRecord?> updateLocation(
     LocalSosRecord record,
-    SavedLocation location,
-  ) async {
-    if (!LocationFixWindow.valid(location)) return null;
+    SavedLocation location, {
+    bool allowLastKnown = false,
+  }) async {
+    final usableCache =
+        allowLastKnown &&
+        location.isLastKnown &&
+        location.latitude.isFinite &&
+        location.longitude.isFinite &&
+        location.latitude.abs() <= 90 &&
+        location.longitude.abs() <= 180 &&
+        location.age.abs() <= const Duration(hours: 24);
+    if (!LocationFixWindow.valid(location) && !usableCache) return null;
     final db = await _local.database;
     return db.transaction((txn) async {
       final value = await _local.sosStore.record(record.id).get(txn);
@@ -115,13 +124,14 @@ class SosRepository {
       if (!current.isActive || current.ownerLocalId != record.ownerLocalId) {
         return null;
       }
+      if (location.isLastKnown && current.latitude != null) return null;
       final next = current.copyWith(
         latitude: location.latitude,
         longitude: location.longitude,
         accuracy: location.accuracyMeters,
         clearAccuracy: location.accuracyMeters == null,
         locationRecordedAt: location.recordedAt,
-        isLastKnownLocation: false,
+        isLastKnownLocation: location.isLastKnown,
         revision: current.revision + 1,
         updatedAt: DateTime.now(),
         syncState: 'pending',
@@ -145,6 +155,29 @@ class SosRepository {
         updatedAt: now,
       ),
     );
+  }
+
+  /// Idempotent, owner-scoped close for a verified rescue completion.
+  Future<LocalSosRecord?> complete(String id, String owner) async {
+    final db = await _local.database;
+    return db.transaction((txn) async {
+      final row = await _local.sosStore.record(id).get(txn);
+      if (row == null) return null;
+      final current = LocalSosRecord.fromLocalMap(row);
+      if (current.ownerLocalId != owner) return null;
+      if (!current.isActive) return current;
+      final now = DateTime.now();
+      final closed = current.copyWith(
+        isActive: false,
+        endedAt: now,
+        updatedAt: now,
+        syncState: 'pending',
+        revision: current.revision + 1,
+        clearLastError: true,
+      );
+      await _save(txn, closed, 'update');
+      return closed;
+    });
   }
 
   Future<void> _save(

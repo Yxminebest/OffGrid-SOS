@@ -1,4 +1,4 @@
-enum AppRole { guest, user, rescuer, admin }
+enum AppRole { user, rescuer, admin }
 
 class AppUser {
   const AppUser({

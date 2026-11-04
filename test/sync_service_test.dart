@@ -14,6 +14,9 @@ import 'package:offgrid_sos/data/repositories/message_repository.dart';
 import 'package:offgrid_sos/data/repositories/sync_queue_repository.dart';
 import 'package:offgrid_sos/models/user.dart';
 import 'package:offgrid_sos/services/sync_service.dart';
+import 'package:offgrid_sos/services/chat_action.dart';
+import 'package:offgrid_sos/services/unified_chat_service.dart';
+import 'package:offgrid_sos/data/models/local_message_record.dart';
 import 'package:offgrid_sos/data/repositories/nearby_chat_repository.dart';
 
 const me = AppUser(
@@ -52,6 +55,7 @@ void main() {
   late Future<void> Function(HttpRequest) handle;
   late Future<bool> Function() hasConnection;
   late List<Map<String, dynamic>> uploaded;
+  late List<Map<String, dynamic>> storageDeletes;
   late List<int> preserved;
 
   setUp(() async {
@@ -62,6 +66,7 @@ void main() {
     sos = SosRepository(local: local);
     queue = SyncQueueRepository(local: local);
     uploaded = [];
+    storageDeletes = [];
     preserved = [];
     hasConnection = () async => true;
     handle = (request) async {
@@ -79,6 +84,13 @@ void main() {
       final body = request.uri.path.startsWith('/storage/')
           ? ''
           : utf8.decode(bytes);
+      if (request.method == 'DELETE' &&
+          request.uri.path.startsWith('/storage/') &&
+          bytes.isNotEmpty) {
+        storageDeletes.add(
+          Map<String, dynamic>.from(jsonDecode(utf8.decode(bytes)) as Map),
+        );
+      }
       if (body.isNotEmpty) {
         uploaded.add(Map<String, dynamic>.from(jsonDecode(body) as Map));
       }
@@ -309,6 +321,25 @@ void main() {
   );
 
   test(
+    'completed SOS syncs its closed state and end time to Supabase once',
+    () async {
+      final record = await sos.create(user: me, message: 'rescue completed');
+      await sync.syncNow();
+      uploaded.clear();
+      final closed = await sos.complete(record.id, me.id);
+      expect(closed?.isActive, isFalse);
+      await sync.syncNow();
+      expect(uploaded, hasLength(1));
+      expect(uploaded.single['id'], record.id);
+      expect(uploaded.single['is_active'], isFalse);
+      expect(uploaded.single['ended_at'], isNotNull);
+      expect(await queue.countFor(me.id), 0);
+      await sos.complete(record.id, me.id);
+      expect(await queue.countFor(me.id), 0);
+    },
+  );
+
+  test(
     'concurrent sync calls share a lock during the connectivity await',
     () async {
       await sos.create(user: me, message: 'help');
@@ -324,6 +355,90 @@ void main() {
       online.complete(true);
       await Future.wait([first, second]);
       expect(uploaded, hasLength(1));
+      expect(await queue.countFor(me.id), 0);
+    },
+  );
+
+  test(
+    'all four chat actions round trip through the Supabase REST client unchanged',
+    () async {
+      final messages = MessageRepository(local: local);
+      final original = await messages.create(
+        user: me,
+        conversationId: 'room',
+        content: 'original',
+      );
+      final wire = [
+        ChatAction.message('answer', replyTo: original.id),
+        ChatAction.edit(original.id, 'edited'),
+        ChatAction.retract(original.id),
+        ChatAction.delete(original.id),
+      ];
+      for (var i = 0; i < wire.length; i++) {
+        await messages.create(
+          user: me,
+          conversationId: 'room',
+          content: wire[i],
+          createdAt: original.createdAt.add(Duration(seconds: i + 1)),
+        );
+      }
+      await sync.syncNow();
+      expect(uploaded, hasLength(5));
+      expect(uploaded.map((m) => m['content']), containsAll(wire));
+      for (final row in uploaded) {
+        expect(row['type'], 'text');
+        expect(row['sender_id'], me.id);
+        expect(row.containsKey('message_type'), isFalse);
+        expect(row['conversation_id'], 'room');
+      }
+      final received = uploaded.map((row) {
+        final record = LocalMessageRecord.fromCloudMap(
+          map: row,
+          ownerLocalId: 'receiver',
+          senderName: 'A',
+        );
+        return ChatItem(
+          id: record.id,
+          at: record.createdAt,
+          mine: false,
+          type: record.messageType,
+          text: record.content,
+          status: record.syncState,
+        );
+      }).toList();
+      final projected = projectChatMessages(received);
+      expect(projected.singleWhere((m) => m.id == original.id).deleted, isTrue);
+      expect(projected.where((m) => !m.deleted).single.text, 'answer');
+      expect(projected.where((m) => !m.deleted).single.replyToId, original.id);
+      expect(await queue.countFor(me.id), 0);
+    },
+  );
+
+  test(
+    'cloud message deletion calls messages DELETE and removes its chat-media object',
+    () async {
+      final messages = MessageRepository(local: local);
+      final record = await messages.create(
+        user: me,
+        conversationId: 'room',
+        type: 'image',
+        content: 'photo',
+      );
+      final path = '${me.id}/room/${record.id}/photo.jpg';
+      await messages.attachUploadedMedia(id: record.id, mediaPath: path);
+      await sync.syncNow();
+      final requests = <String>[];
+      handle = (request) async {
+        requests.add('${request.method} ${request.uri.path}');
+        request.response.headers.contentType = ContentType.json;
+        request.response.write('[]');
+        await request.response.close();
+      };
+      await messages.delete((await messages.findById(record.id))!);
+      await sync.syncNow();
+      expect(requests, contains('DELETE /rest/v1/messages'));
+      expect(requests, contains('DELETE /storage/v1/object/chat-media'));
+      expect(storageDeletes.single['prefixes'], [path]);
       expect(await queue.countFor(me.id), 0);
     },
   );

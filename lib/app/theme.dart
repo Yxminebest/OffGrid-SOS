@@ -1,99 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-class AppColors {
-  static const sos = Color(0xFFC93643);
-  static const error = Color(0xFFC93643);
-  static const rescue = Color(0xFF316FB8);
-  static const info = Color(0xFF805B00);
-  static const success = Color(0xFF785B13);
-  static const pending = Color(0xFF99601B);
-}
+import 'app_palette.dart';
+import 'style_tokens.dart';
 
-@immutable
-class AppPalette extends ThemeExtension<AppPalette> {
-  const AppPalette({
-    required this.background,
-    required this.surface,
-    required this.surfaceSoft,
-    required this.border,
-    required this.text,
-    required this.muted,
-    required this.info,
-    required this.rescue,
-    required this.success,
-    required this.pending,
-  });
-  final Color background, surface, surfaceSoft, border, text, muted;
-  final Color info, rescue, success, pending;
-
-  static const light = AppPalette(
-    background: Color(0xFFFFFBF0),
-    surface: Colors.white,
-    surfaceSoft: Color(0xFFFFF1C2),
-    border: Color(0xFFE5DDC5),
-    text: Color(0xFF302A1D),
-    muted: Color(0xFF71654F),
-    info: Color(0xFF805B00),
-    rescue: Color(0xFF316FB8),
-    success: Color(0xFF785B13),
-    pending: Color(0xFF99601B),
-  );
-  static const dark = AppPalette(
-    background: Color(0xFF191710),
-    surface: Color(0xFF242016),
-    surfaceSoft: Color(0xFF322B19),
-    border: Color(0xFF51462B),
-    text: Color(0xFFFFF6DE),
-    muted: Color(0xFFC3B796),
-    info: Color(0xFFF3CA55),
-    rescue: Color(0xFF92BDF3),
-    success: Color(0xFFE7CA76),
-    pending: Color(0xFFF2C078),
-  );
-
-  @override
-  AppPalette copyWith({
-    Color? background,
-    Color? surface,
-    Color? surfaceSoft,
-    Color? border,
-    Color? text,
-    Color? muted,
-    Color? info,
-    Color? rescue,
-    Color? success,
-    Color? pending,
-  }) => AppPalette(
-    background: background ?? this.background,
-    surface: surface ?? this.surface,
-    surfaceSoft: surfaceSoft ?? this.surfaceSoft,
-    border: border ?? this.border,
-    text: text ?? this.text,
-    muted: muted ?? this.muted,
-    info: info ?? this.info,
-    rescue: rescue ?? this.rescue,
-    success: success ?? this.success,
-    pending: pending ?? this.pending,
-  );
-
-  @override
-  AppPalette lerp(covariant AppPalette? other, double t) {
-    if (other == null) return this;
-    return AppPalette(
-      background: Color.lerp(background, other.background, t)!,
-      surface: Color.lerp(surface, other.surface, t)!,
-      surfaceSoft: Color.lerp(surfaceSoft, other.surfaceSoft, t)!,
-      border: Color.lerp(border, other.border, t)!,
-      text: Color.lerp(text, other.text, t)!,
-      muted: Color.lerp(muted, other.muted, t)!,
-      info: Color.lerp(info, other.info, t)!,
-      rescue: Color.lerp(rescue, other.rescue, t)!,
-      success: Color.lerp(success, other.success, t)!,
-      pending: Color.lerp(pending, other.pending, t)!,
-    );
-  }
-}
+export 'app_palette.dart';
+export 'style_tokens.dart';
 
 extension AppThemeContext on BuildContext {
   AppPalette get colors =>
@@ -112,27 +24,27 @@ ThemeData buildTheme({Brightness brightness = Brightness.light}) {
         brightness: brightness,
       ).copyWith(
         primary: p.info,
-        onPrimary: dark ? const Color(0xFF33280C) : Colors.white,
+        onPrimary: dark ? AppColors.onPrimaryDark : Colors.white,
         secondary: p.rescue,
         surface: p.surface,
         onSurface: p.text,
         onSurfaceVariant: p.muted,
         outline: p.border,
         outlineVariant: p.border,
-        error: dark ? const Color(0xFFFFA7AE) : AppColors.error,
+        error: dark ? AppColors.errorDark : AppColors.error,
         errorContainer: dark
-            ? const Color(0xFF45262F)
-            : const Color(0xFFFFEDF0),
-        onErrorContainer: dark
-            ? const Color(0xFFFFC4CA)
-            : const Color(0xFF962633),
+            ? AppColors.errorSurfaceDark
+            : AppColors.errorSurfaceLight,
+        onErrorContainer: dark ? AppColors.onErrorDark : AppColors.onErrorLight,
       );
   final base = ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
     brightness: brightness,
   );
-  final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(22));
+  final shape = RoundedRectangleBorder(
+    borderRadius: BorderRadius.circular(AppMetrics.cardRadius),
+  );
   final text = base.textTheme
       .apply(bodyColor: p.text, displayColor: p.text)
       .copyWith(
@@ -170,7 +82,7 @@ ThemeData buildTheme({Brightness brightness = Brightness.light}) {
           color: p.text,
         ),
       )
-      .apply(fontFamily: 'Roboto');
+      .apply(fontFamily: AppMetrics.fontFamily);
   return base.copyWith(
     extensions: [p],
     scaffoldBackgroundColor: p.background,
@@ -202,44 +114,60 @@ ThemeData buildTheme({Brightness brightness = Brightness.light}) {
       prefixIconColor: p.muted,
       suffixIconColor: p.muted,
       contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 17),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppMetrics.controlRadius),
+      ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(AppMetrics.controlRadius),
         borderSide: BorderSide(color: p.border),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(AppMetrics.controlRadius),
         borderSide: BorderSide(color: p.info, width: 1.8),
       ),
       errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(AppMetrics.controlRadius),
         borderSide: const BorderSide(color: AppColors.error),
       ),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        backgroundColor: const Color(0xFFF4C84B),
-        foregroundColor: const Color(0xFF30250D),
-        minimumSize: const Size(48, 54),
+        backgroundColor: AppColors.brand,
+        foregroundColor: AppColors.brandInk,
+        minimumSize: const Size(
+          AppMetrics.minimumTapSize,
+          AppMetrics.buttonHeight,
+        ),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         textStyle: text.labelLarge,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppMetrics.controlRadius),
+        ),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        minimumSize: const Size(48, 54),
+        minimumSize: const Size(
+          AppMetrics.minimumTapSize,
+          AppMetrics.buttonHeight,
+        ),
         foregroundColor: p.text,
         side: BorderSide(color: p.border),
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppMetrics.controlRadius),
+        ),
       ),
     ),
     textButtonTheme: TextButtonThemeData(
-      style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+      style: TextButton.styleFrom(
+        minimumSize: const Size.square(AppMetrics.minimumTapSize),
+      ),
     ),
     iconButtonTheme: IconButtonThemeData(
-      style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
+      style: IconButton.styleFrom(
+        minimumSize: const Size.square(AppMetrics.minimumTapSize),
+      ),
     ),
     navigationBarTheme: NavigationBarThemeData(
       backgroundColor: p.surface,
@@ -268,7 +196,9 @@ ThemeData buildTheme({Brightness brightness = Brightness.light}) {
       side: BorderSide(color: p.border),
       labelStyle: TextStyle(color: p.text),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppMetrics.chipRadius),
+      ),
     ),
     listTileTheme: ListTileThemeData(
       iconColor: p.info,
@@ -280,24 +210,30 @@ ThemeData buildTheme({Brightness brightness = Brightness.light}) {
     ),
     dialogTheme: DialogThemeData(
       backgroundColor: p.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppMetrics.dialogRadius),
+      ),
     ),
     bottomSheetTheme: BottomSheetThemeData(
       backgroundColor: p.surface,
       showDragHandle: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppMetrics.sheetRadius),
+        ),
       ),
     ),
     snackBarTheme: SnackBarThemeData(
-      backgroundColor: dark ? const Color(0xFF50452C) : const Color(0xFF3B321C),
+      backgroundColor: dark ? AppColors.snackbarDark : AppColors.snackbarLight,
       contentTextStyle: const TextStyle(
         color: Colors.white,
         fontSize: 14,
         height: 1.5,
       ),
-      actionTextColor: const Color(0xFFFFE29A),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      actionTextColor: AppColors.snackbarAction,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppMetrics.controlRadius),
+      ),
       behavior: SnackBarBehavior.floating,
     ),
   );

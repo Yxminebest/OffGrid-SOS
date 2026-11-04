@@ -79,6 +79,25 @@ class ChatService {
     await _conversations.replaceForUser(me.id, list);
   }
 
+  Future<Set<String>> existingUsers(AppUser me, Set<String> users) async {
+    if (_supabase.auth.currentUser?.id != me.id) {
+      throw StateError('บัญชีเปลี่ยนแล้ว');
+    }
+    final result = <String>{};
+    final ids = users.toList();
+    for (var offset = 0; offset < ids.length; offset += 40) {
+      final rows = await _supabase
+          .from('profiles')
+          .select('id')
+          .inFilter('id', ids.skip(offset).take(40).toList());
+      result.addAll(rows.map((r) => r['id'].toString()));
+    }
+    if (_supabase.auth.currentUser?.id != me.id) {
+      throw StateError('บัญชีเปลี่ยนแล้ว');
+    }
+    return result;
+  }
+
   Future<List<ChatUser>> searchUsers(String query) async {
     final rows = await _supabase.rpc(
       'chat_search_users',

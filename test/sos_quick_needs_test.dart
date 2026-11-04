@@ -20,6 +20,8 @@ const guest = AppUser(
 class _NoGps extends LocationService {
   @override
   Future<SavedLocation?> getLatestLocation() async => null;
+  @override
+  Stream<SavedLocation> emergencyLocations() => const Stream.empty();
 }
 
 void main() {
@@ -174,7 +176,7 @@ void main() {
   );
 
   testWidgets(
-    'legacy rescue chat title resolves to member and only active rescue status changes its label',
+    'legacy rescue title resolves to member and rescue badge does not change transport label',
     (tester) async {
       late LocalDatabase local;
       late NearbyMeshService mesh;
@@ -212,7 +214,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('Nearby Member'), findsOneWidget);
-      expect(find.textContaining('บุคคลใกล้เคียง'), findsOneWidget);
+      expect(find.text('ออฟไลน์'), findsOneWidget);
       expect(find.text('แชทกับหน่วยกู้ภัย'), findsNothing);
       mesh.inbox.insert(
         0,
@@ -234,7 +236,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.textContaining('หน่วยกู้ภัย'), findsOneWidget);
+      expect(find.byTooltip('หน่วยกู้ภัยกำลังปฏิบัติหน้าที่'), findsOneWidget);
+      expect(find.text('ออฟไลน์'), findsOneWidget);
       mesh.inbox.insert(
         0,
         MeshMessage({

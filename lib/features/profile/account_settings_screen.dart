@@ -5,7 +5,6 @@ import '../../app/theme.dart';
 import '../../models/user.dart';
 import '../../services/auth_service.dart';
 import '../../services/home_return_policy.dart';
-import '../../services/sync_service.dart';
 import '../../widgets/password_strength_indicator.dart';
 
 class AccountSettingsScreen extends StatefulWidget {
@@ -278,7 +277,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                     children: [
                       ClipOval(
                         child: SizedBox.square(
-                          dimension: 80,
+                          dimension: AppMetrics.accountAvatarSize,
                           child: _uploadingPhoto
                               ? const Center(child: CircularProgressIndicator())
                               : _current.photoUrl == null
@@ -335,8 +334,20 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                 onPressed: _busy ? null : _changePhoto,
                 icon: const Icon(Icons.add_a_photo_outlined, size: 18),
                 label: const Text('เปลี่ยนรูป'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(
+                    AppMetrics.minimumTapSize,
+                    AppMetrics.compactButtonHeight,
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppMetrics.compactButtonPadding,
+                    vertical: 8,
+                  ),
+                  textStyle: Theme.of(context).textTheme.labelMedium,
+                ),
               ),
-              FilledButton.tonalIcon(
+              IconButton.filledTonal(
+                tooltip: 'รีเฟรชข้อมูลบัญชี',
                 onPressed: _busy ? null : _reload,
                 icon: _reloading
                     ? const SizedBox.square(
@@ -344,15 +355,13 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.refresh_rounded, size: 20),
-                label: Text(_reloading ? 'กำลังอัปเดต…' : 'รีโหลดข้อมูล'),
+                style: IconButton.styleFrom(
+                  minimumSize: const Size.square(AppMetrics.minimumTapSize),
+                ),
               ),
             ],
           ),
           const SizedBox(height: 8),
-          Text(
-            'รีโหลดข้อมูลบัญชีล่าสุดเมื่อเชื่อมต่ออินเทอร์เน็ต',
-            style: TextStyle(fontSize: 12, color: context.colors.muted),
-          ),
         ],
       ),
     );
@@ -540,7 +549,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                             ),
                           );
                         },
-                  child: const Text('ยืนยันลบบัญชี'),
+                  child: const Text('ยืนยัน'),
                 ),
               ],
             );
@@ -577,6 +586,48 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
     });
 
     try {
+      await AuthService.verifyCurrentPassword(deleteRequest.currentPassword);
+      if (!mounted) return;
+      if (AuthService.currentAuthUser?.id != _current.id) {
+        throw const AuthServiceException(
+          'บัญชีเปลี่ยนแล้ว กรุณาเข้าสู่ระบบใหม่',
+        );
+      }
+      final confirmed = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('ยืนยันลบบัญชีถาวร?'),
+          content: SingleChildScrollView(
+            child: Text(
+              '${_current.email ?? _current.fullName}\n\n'
+              'รหัสผ่านถูกต้องแล้ว หากยืนยัน ระบบจะลบบัญชี ข้อมูลสมาชิก '
+              'และไฟล์ของบัญชี รวมถึงประวัติบนเครื่องนี้\n\n'
+              'การลบนี้ไม่สามารถย้อนกลับได้',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('ยกเลิก'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.error,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('ยืนยันลบบัญชีถาวร'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+      if (AuthService.currentAuthUser?.id != _current.id) {
+        throw const AuthServiceException(
+          'บัญชีเปลี่ยนแล้ว กรุณาเข้าสู่ระบบใหม่',
+        );
+      }
       await AuthService.deleteMyAccount(
         currentPassword: deleteRequest.currentPassword,
       );
@@ -619,7 +670,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
 
   Widget _section({
     required String title,
-    required String subtitle,
+    String subtitle = '',
     required IconData icon,
     required List<Widget> children,
   }) {
@@ -649,15 +700,17 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                         fontWeight: FontWeight.w900,
                       ),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        color: context.colors.muted,
-                        fontSize: 12,
-                        height: 1.4,
+                    if (subtitle.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          color: context.colors.muted,
+                          fontSize: 12,
+                          height: 1.4,
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),
@@ -683,39 +736,12 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
           children: [
             _accountHeader(),
             const SizedBox(height: 18),
-            ListTile(
-              leading: const Icon(Icons.cloud_download_outlined),
-              title: const Text('กู้คืนประวัติ Nearby จากคลาวด์'),
-              subtitle: const Text(
-                'ใช้บัญชีเดิมและอินเทอร์เน็ต รวมรูปและวิดีโอที่สำรองแล้ว',
-              ),
-              onTap: _busy
-                  ? null
-                  : () async {
-                      setState(() => _busy = true);
-                      try {
-                        final count = await SyncService.instance
-                            .restoreNearbyArchive();
-                        _show('กู้คืน $count รายการแล้ว');
-                      } catch (_) {
-                        _show(
-                          'กู้คืนไม่สำเร็จ กรุณาตรวจอินเทอร์เน็ตและการตั้งค่าคลาวด์',
-                          error: true,
-                        );
-                      } finally {
-                        if (mounted) setState(() => _busy = false);
-                      }
-                    },
-            ),
-
-            const SizedBox(height: 18),
 
             // -------------------------------------------------
             // Personal information
             // -------------------------------------------------
             _section(
               title: 'ข้อมูลส่วนตัว',
-              subtitle: 'แก้ชื่อจริง นามสกุล และเบอร์โทรศัพท์',
               icon: Icons.person_outline_rounded,
               children: [
                 TextField(
@@ -755,9 +781,6 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
             // -------------------------------------------------
             _section(
               title: 'เปลี่ยนอีเมล',
-              subtitle:
-                  'เพื่อป้องกันการยึดบัญชี '
-                  'ต้องยืนยันรหัสผ่านปัจจุบันก่อน',
               icon: Icons.alternate_email_rounded,
               children: [
                 Text(
@@ -832,9 +855,6 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
             // -------------------------------------------------
             _section(
               title: 'เปลี่ยนรหัสผ่าน',
-              subtitle:
-                  'ต้องกรอกรหัสผ่านเดิมก่อนทุกครั้ง '
-                  'แล้วจึงตั้งรหัสผ่านใหม่',
               icon: Icons.password_rounded,
               children: [
                 TextField(
@@ -948,14 +968,6 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                 fontSize: 18,
                 fontWeight: FontWeight.w900,
               ),
-            ),
-
-            const SizedBox(height: 8),
-
-            Text(
-              'การลบบัญชีเป็นการลบถาวร '
-              'ต้องเชื่อมต่ออินเทอร์เน็ตและยืนยันด้วยรหัสผ่านปัจจุบันที่ถูกต้อง',
-              style: TextStyle(color: context.colors.muted, height: 1.45),
             ),
 
             const SizedBox(height: 12),

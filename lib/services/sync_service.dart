@@ -80,6 +80,11 @@ class SyncService {
 
   SupabaseClient get _supabase => client ?? Supabase.instance.client;
 
+  /// Starts connectivity listeners and the retry timer for the current login.
+  ///
+  /// Local writes never depend on this method: they are already durable in the
+  /// local database/queue. This worker only uploads pending records when a
+  /// real connection is available, so an offline device remains usable.
   Future<void> start() async {
     await _stopOperation;
     if (_started) {
@@ -186,6 +191,8 @@ class SyncService {
       return;
     }
     // Take the lock before the first await, including connectivity checks.
+    // Without this, a timer tick and a reconnect callback could upload the
+    // same queue item concurrently and report contradictory status.
     final completion = Completer<void>();
     _activeSync = completion;
     try {
@@ -202,7 +209,7 @@ class SyncService {
     if (authUser == null) {
       await _refreshStatus(
         activity: SyncActivity.idle,
-        message: 'Guest • เก็บข้อมูลไว้ในเครื่อง',
+        message: 'เก็บข้อมูลไว้ในเครื่อง',
       );
       return;
     }
@@ -441,6 +448,9 @@ class SyncService {
 
     _requireSession(currentUserId);
 
+    // Delete-for-all is authoritative. Remove the row first; media cleanup is
+    // best-effort because a missing object must not cause the message to be
+    // recreated on a later retry.
     if (job.operation == 'delete' || record.isDeleted) {
       await _supabase.from('messages').delete().eq('id', record.id);
       final mediaPath = record.mediaPath;
@@ -454,6 +464,9 @@ class SyncService {
       return;
     }
 
+    // Upload bytes before the row, then upsert the row with the storage path.
+    // The local copy is preserved before clearing media_bytes so an interrupted
+    // upload can be retried without asking the user to pick the file again.
     var uploadRecord = record;
     final pendingBytes = record.mediaBytes;
     if (pendingBytes != null &&

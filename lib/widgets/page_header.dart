@@ -21,15 +21,17 @@ class PageHeader extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(title, style: Theme.of(context).textTheme.headlineMedium),
-              const SizedBox(height: 5),
-              Text(
-                subtitle,
-                style: TextStyle(
-                  color: context.colors.muted,
-                  fontSize: 13,
-                  height: 1.5,
+              if (subtitle.isNotEmpty) ...[
+                const SizedBox(height: 5),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    color: context.colors.muted,
+                    fontSize: 13,
+                    height: 1.5,
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ),
@@ -70,12 +72,14 @@ class EmptyState extends StatelessWidget {
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.titleMedium,
         ),
-        const SizedBox(height: 8),
-        Text(
-          description,
-          textAlign: TextAlign.center,
-          style: TextStyle(color: context.colors.muted, height: 1.6),
-        ),
+        if (description.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text(
+            description,
+            textAlign: TextAlign.center,
+            style: TextStyle(color: context.colors.muted, height: 1.6),
+          ),
+        ],
         if (action != null) ...[const SizedBox(height: 20), action!],
       ],
     ),
