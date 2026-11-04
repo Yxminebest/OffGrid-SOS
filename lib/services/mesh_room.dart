@@ -9,14 +9,42 @@ class MeshRoom {
   final LocalDatabase local;
   static final store = stringMapStoreFactory.store('mesh_public_room_v1');
 
-  Future<bool> save(String owner, Map<String, dynamic> event) async {
+  Future<bool> save(
+    String owner,
+    Map<String, dynamic> event, {
+    bool incoming = true,
+    bool synced = false,
+  }) async {
     final db = await local.database;
     return db.transaction((txn) async {
       final record = store.record('$owner:${event['origin']}:${event['id']}');
       if (await record.exists(txn)) return false;
-      await record.put(txn, {'owner': owner, 'event': event});
+      await record.put(txn, {
+        'owner': owner,
+        'event': event,
+        'incoming': incoming,
+        'synced': synced,
+      });
       return true;
     });
+  }
+
+  Future<List<Map<String, Object?>>> unsynced(String owner) async =>
+      (await store.find(
+        await local.database,
+        finder: Finder(
+          filter: Filter.and([
+            Filter.equals('owner', owner),
+            Filter.notEquals('synced', true),
+          ]),
+        ),
+      )).map((row) => row.value).toList();
+
+  Future<void> archived(String owner, Map<String, dynamic> event) async {
+    await store.record('$owner:${event['origin']}:${event['id']}').update(
+      await local.database,
+      {'synced': true},
+    );
   }
 
   Future<List<Map<String, dynamic>>> events(String owner) async {

@@ -32,9 +32,20 @@ void main() {
         ),
       );
       await tester.enterText(find.byType(TextField), 'ข่าวทดสอบ');
-      await tester.tap(find.byTooltip('ส่งข้อความ'));
       await tester.runAsync(() async {
-        await Future<void>.delayed(const Duration(milliseconds: 100));
+        await tester.tap(find.byTooltip('ส่งข้อความ'));
+        final deadline = DateTime.now().add(const Duration(seconds: 5));
+        while ((await mesh.room.events('a')).isEmpty ||
+            tester
+                .widget<TextField>(find.byType(TextField))
+                .controller!
+                .text
+                .isNotEmpty) {
+          if (DateTime.now().isAfter(deadline)) {
+            fail('Public message was not persisted');
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
       });
       await tester.pumpAndSettle();
       expect(find.text('ข่าวทดสอบ'), findsOneWidget);

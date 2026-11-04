@@ -9,6 +9,7 @@ import '../data/repositories/message_repository.dart';
 import '../data/repositories/sos_repository.dart';
 import '../data/repositories/sync_queue_repository.dart';
 import 'network_service.dart';
+import 'mesh_room.dart';
 import 'chat_media_cache.dart';
 import 'nearby_media_files.dart';
 import '../data/repositories/nearby_chat_repository.dart';
@@ -41,6 +42,7 @@ class SyncService {
     this.retryInterval = const Duration(seconds: 5),
     Future<void> Function(String, String, List<int>)? preserveMedia,
   }) : _nearby = NearbyChatRepository(local: local),
+       _room = MeshRoom(local ?? LocalDatabase.instance),
        _nearbyFiles = nearbyFiles ?? NearbyMediaFiles(),
        _preserveMedia = preserveMedia ?? ChatMediaCache.instance.put,
        _queue = SyncQueueRepository(local: local),
@@ -54,6 +56,7 @@ class SyncService {
   static final SyncService instance = SyncService();
 
   final NearbyChatRepository _nearby;
+  final MeshRoom _room;
   final NearbyMediaFiles _nearbyFiles;
   final SyncQueueRepository _queue;
   final SosRepository _sos;
@@ -157,7 +160,8 @@ class SyncService {
       if (userId == null) return;
       if (await _queue.countFor(userId) == 0 &&
           (DateTime.now().isBefore(_archiveRetryAt) ||
-              await _nearby.unsyncedCount(userId) == 0)) {
+              (await _nearby.unsyncedCount(userId) == 0 &&
+                  (await _room.unsynced(userId)).isEmpty))) {
         return;
       }
       if (_started && !_stopping) await syncNow();
@@ -252,8 +256,11 @@ class SyncService {
     final archiveRows = DateTime.now().isBefore(_archiveRetryAt)
         ? <Map<String, Object?>>[]
         : await _nearby.unsynced(authUser.id);
+    final roomRows = DateTime.now().isBefore(_archiveRetryAt)
+        ? <Map<String, Object?>>[]
+        : await _room.unsynced(authUser.id);
     var archiveFailed = false;
-    if (archiveRows.isNotEmpty) {
+    if (archiveRows.isNotEmpty || roomRows.isNotEmpty) {
       try {
         // Check migration/RLS before uploading any attachment bytes.
         await _supabase
@@ -305,6 +312,30 @@ class SyncService {
         failures++;
       }
     }
+    for (final row in archiveFailed ? <Map<String, Object?>>[] : roomRows) {
+      try {
+        _requireSession(authUser.id);
+        final event = Map<String, dynamic>.from(row['event'] as Map);
+        // เวลาจริงตอนออฟไลน์อยู่ใน envelope.at; updated_at คือเวลาซิงค์เท่านั้น
+        // ใช้ตาราง/RLS เดิม ไม่สร้างห้องสาธารณะที่อ่านประวัติข้ามบัญชีบน cloud
+        await _supabase.from('nearby_archive').upsert({
+          'owner_id': authUser.id,
+          'message_id': event['id'],
+          'peer': '*',
+          'incoming': row['incoming'] ?? true,
+          'delivery': 'delivered',
+          'envelope': event,
+          'revision': 1,
+          'media_path': null,
+        }, onConflict: 'owner_id,message_id');
+        _requireSession(authUser.id);
+        await _room.archived(authUser.id, event);
+        success++;
+      } catch (_) {
+        archiveFailed = true;
+        failures++;
+      }
+    }
     if (archiveFailed) {
       _archiveFailures++;
       final delay = [5, 15, 30, 60, 300][(_archiveFailures - 1).clamp(0, 4)];
@@ -315,7 +346,8 @@ class SyncService {
     if (_stopping) return;
     final pending =
         await _queue.countFor(authUser.id) +
-        await _nearby.unsyncedCount(authUser.id);
+        await _nearby.unsyncedCount(authUser.id) +
+        (await _room.unsynced(authUser.id)).length;
     if (failures > 0) {
       await _refreshStatus(
         activity: SyncActivity.error,
@@ -359,6 +391,18 @@ class SyncService {
       for (final row in rows) {
         _requireSession(owner);
         final id = row['message_id'].toString();
+        if ((row['envelope'] as Map?)?['kind'] == 'room') {
+          _requireSession(owner);
+          if (await _room.save(
+            owner,
+            Map<String, dynamic>.from(row['envelope'] as Map),
+            incoming: row['incoming'] == true,
+            synced: true,
+          )) {
+            count++;
+          }
+          continue;
+        }
         if (await _nearby.find(owner, id) != null) continue;
         String? localPath;
         if (row['media_path'] is String) {
@@ -519,7 +563,8 @@ class SyncService {
     final pending = authUserId == null
         ? 0
         : await _queue.countFor(authUserId) +
-              await _nearby.unsyncedCount(authUserId);
+              await _nearby.unsyncedCount(authUserId) +
+              (await _room.unsynced(authUserId)).length;
 
     status.value = SyncSnapshot(
       activity: activity,

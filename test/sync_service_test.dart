@@ -14,6 +14,7 @@ import 'package:offgrid_sos/data/repositories/message_repository.dart';
 import 'package:offgrid_sos/data/repositories/sync_queue_repository.dart';
 import 'package:offgrid_sos/models/user.dart';
 import 'package:offgrid_sos/services/sync_service.dart';
+import 'package:offgrid_sos/services/mesh_room.dart';
 import 'package:offgrid_sos/services/chat_action.dart';
 import 'package:offgrid_sos/services/unified_chat_service.dart';
 import 'package:offgrid_sos/data/models/local_message_record.dart';
@@ -139,6 +140,53 @@ void main() {
     await server.close(force: true);
     await (await local.database).close();
   });
+
+  test(
+    'offline public room sync preserves original timestamp and retries idempotently',
+    () async {
+      final room = MeshRoom(local);
+      final offlineTime = DateTime.utc(2026, 10, 1, 2, 3, 4);
+      final event = <String, dynamic>{
+        'id': '85000000-0000-4000-8000-000000000123',
+        'v': 1,
+        'kind': 'room',
+        'origin': 'device-a',
+        'sender': 'A',
+        'at': offlineTime.toIso8601String(),
+        'ttl': 6,
+        'hopCount': 0,
+        'data': {'text': 'ส่งเมื่อไม่มีเน็ต'},
+      };
+      await room.save(me.id, event, incoming: false);
+      hasConnection = () async => false;
+      await sync.syncNow();
+      expect(uploaded, isEmpty);
+      expect(sync.status.value.pendingCount, 1);
+      hasConnection = () async => true;
+      var failUpload = true;
+      handle = (request) async {
+        request.response.headers.contentType = ContentType.json;
+        request.response.statusCode = request.method == 'POST' && failUpload
+            ? 503
+            : 200;
+        request.response.write('[]');
+        await request.response.close();
+      };
+      await sync.syncNow();
+      expect(await room.unsynced(me.id), hasLength(1));
+      failUpload = false;
+      await sync.retryAll();
+      expect(await room.unsynced(me.id), isEmpty);
+      expect(uploaded, hasLength(2));
+      for (final row in uploaded) {
+        expect(row['message_id'], event['id']);
+        expect((row['envelope'] as Map)['at'], offlineTime.toIso8601String());
+        expect((row['envelope'] as Map)['hopCount'], 0);
+      }
+      await sync.syncNow();
+      expect(uploaded, hasLength(2));
+    },
+  );
 
   test(
     'archive media uploads once even if metadata upsert must retry',

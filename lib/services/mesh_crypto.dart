@@ -120,6 +120,8 @@ class MeshCrypto {
   List<int> _statusBytes(Map<String, dynamic> message) => _canonical(
     Map<String, dynamic>.from(message)
       ..remove('ttl')
+      // Relay thay đổi bộ đếm hop, không thay đổi nội dung đã ký của tác giả.
+      ..remove('hopCount')
       ..remove('statusSignature'),
   );
   Future<void> signStatus(Map<String, dynamic> message) async {

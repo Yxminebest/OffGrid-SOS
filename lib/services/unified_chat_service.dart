@@ -183,9 +183,7 @@ class ChatInboxEntry {
       for (final message in messages) message.id: message,
       for (final message in wireMessages ?? <ChatItem>[]) message.id: message,
     };
-    return merged.values
-        .where((m) => !removed.contains(m.id))
-        .toList();
+    return merged.values.where((m) => !removed.contains(m.id)).toList();
   }
 
   final int cloudUnread;
@@ -1120,6 +1118,7 @@ class UnifiedChatService {
           await mesh.sendAttachment(
             target: peer.deviceId,
             path: stored,
+            createdAt: m.at,
             name: m.name,
             type: m.type,
             peerName: c.name,
@@ -1131,6 +1130,7 @@ class UnifiedChatService {
         await mesh.sendDirect(
           target: peer.deviceId,
           text: m.text.isEmpty ? 'ตำแหน่งของฉัน' : m.text,
+          createdAt: m.at,
           messageId: m.id,
           recipientUser: c.user,
           peerName: c.name,

@@ -3,6 +3,10 @@ import 'radio_send_queue.dart';
 import 'dart:async';
 import 'chat_action.dart';
 import 'mesh_room.dart';
+import '../models/mesh_packet.dart';
+import 'mesh/mesh_router.dart';
+import 'mesh/mesh_router_store.dart';
+import 'mesh/callback_mesh_transport.dart';
 import 'sync_service.dart';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
@@ -273,6 +277,65 @@ class NearbyMeshService extends ChangeNotifier {
   int _rescueRevision = 0;
   late final chats = NearbyChatRepository(local: _local);
   late final room = MeshRoom(_local);
+  MeshRouter? _roomRouter;
+  CallbackMeshTransport? _roomTransport;
+
+  Future<void> _initializeRoomRouter() async {
+    final owner = _ownerId!;
+    final generation = _sessionGeneration;
+    final transport = CallbackMeshTransport(
+      connectPeer: (id) => connect(id),
+      disconnectPeer: _disconnect,
+      sendPacket: (id, packet) async {
+        if (generation != _sessionGeneration || _ownerId != owner) {
+          throw StateError('Mesh session ended');
+        }
+        await _direct(id, packet.toEnvelope());
+      },
+    );
+    final router = MeshRouter(
+      nodeId: deviceId,
+      transport: transport,
+      store: LocalMeshRouterStore(_local, '$owner:$deviceId'),
+      validate: (packet) async {
+        final event = packet.toEnvelope();
+        final certificate = event['certificate'];
+        final body = event['data'];
+        return generation == _sessionGeneration &&
+            _ownerId == owner &&
+            event['kind'] == 'room' &&
+            certificate is Map &&
+            body is Map &&
+            body['text'] is String &&
+            (body['text'] as String).trim().isNotEmpty &&
+            ChatAction.validWire(body['text'] as String) &&
+            await crypto.accept(Map<String, dynamic>.from(certificate)) &&
+            await crypto.verifyStatus(certificate, event);
+      },
+      onDeliver: (packet) async {
+        if (generation == _sessionGeneration && _ownerId == owner) {
+          await room.save(
+            owner,
+            packet.toEnvelope(),
+            incoming: packet.senderId != deviceId,
+          );
+        }
+      },
+    );
+    _roomTransport = transport;
+    _roomRouter = router;
+    await router.start();
+    transport.updatePeers(connected);
+  }
+
+  void _closeRoomRouter() {
+    final router = _roomRouter;
+    final transport = _roomTransport;
+    _roomRouter = null;
+    _roomTransport = null;
+    if (router != null) unawaited(router.close());
+    if (transport != null) unawaited(transport.close());
+  }
 
   String _roomKey(Map<String, dynamic> event) =>
       '${event['origin']}:${event['id']}';
@@ -315,8 +378,9 @@ class NearbyMeshService extends ChangeNotifier {
       throw ArgumentError('ข้อความยาวเกินขนาดที่ส่งผ่านเครือข่ายได้');
     }
     if (generation != _sessionGeneration) return;
-    await room.save(owner, event);
-    if (generation == _sessionGeneration) await _broadcast(event);
+    if (generation == _sessionGeneration) {
+      await _roomRouter!.send(MeshPacket.fromEnvelope(event));
+    }
   }
 
   late final sosResponses = SosResponseRepository(_local);
@@ -553,6 +617,7 @@ class NearbyMeshService extends ChangeNotifier {
     final completed = await sosResponses.completedCases(user.id);
     if (generation != _sessionGeneration) return;
     _completedRescueCases.addAll(completed);
+    await _initializeRoomRouter();
     _notify('พร้อมใช้งาน Nearby • กดเริ่มเพื่อค้นหาอุปกรณ์');
   }
 
@@ -594,6 +659,7 @@ class NearbyMeshService extends ChangeNotifier {
   }
 
   void _clearSession() {
+    _closeRoomRouter();
     _completedRescueCases.clear();
     _ownerId = null;
     _memberId = null;
@@ -1252,6 +1318,7 @@ class NearbyMeshService extends ChangeNotifier {
     _passiveSince.remove(endpoint);
     if (endpoint.startsWith('bt:')) _bluetoothReconnect.add(endpoint);
     connected.add(endpoint);
+    _roomTransport?.updatePeers(connected);
     _lastSeen[endpoint] = DateTime.now();
     _probeFailures.remove(endpoint);
     _notify('เชื่อมต่อ ${connected.length} เครื่อง');
@@ -1273,10 +1340,7 @@ class NearbyMeshService extends ChangeNotifier {
       if (owner == null) return;
       // Durable replay includes room edits/deletes and messages written while
       // isolated. Self-contained certificates let late joiners verify authors.
-      for (final event in await room.events(owner)) {
-        if (_ownerId != owner || !connected.contains(endpoint)) return;
-        await _direct(endpoint, {...event, 'ttl': 6});
-      }
+      await _syncRoom(endpoint);
       // Replay tombstones as well as active cases after a radio outage/restart.
       for (final record in await SosRepository(
         local: _local,
@@ -1519,6 +1583,7 @@ class NearbyMeshService extends ChangeNotifier {
   void _disconnected(String id) {
     final peerId = identities[id]?.deviceId;
     connected.remove(id);
+    _roomTransport?.updatePeers(connected);
     _connectingSince.remove(id);
     _autoAttempts.remove(id);
     final lost = _removeRoutes((_, route) => route.via == id);
@@ -2048,27 +2113,21 @@ class NearbyMeshService extends ChangeNotifier {
       } else {
         for (final event in events.where((e) => keys.contains(_roomKey(e)))) {
           if (_ownerId != owner) return;
-          await _direct(from, {...event, 'ttl': 6});
+          final packet = MeshPacket.fromEnvelope(event);
+          if (packet.ttl > 1) {
+            await _direct(from, packet.forwarded().toEnvelope());
+          }
         }
       }
       return;
     }
     if (kind == 'room') {
-      final certificate = data['certificate'];
-      if (data['ttl'] < 0 ||
-          data['ttl'] > 6 ||
-          certificate is! Map ||
-          body['text'] is! String ||
-          (body['text'] as String).trim().isEmpty ||
-          !ChatAction.validWire(body['text'] as String) ||
-          !await crypto.accept(Map<String, dynamic>.from(certificate)) ||
-          !await crypto.verifyStatus(certificate, data) ||
-          _ownerId != owner) {
-        return;
-      }
-      if (!await room.save(owner, data) || _ownerId != owner) return;
-      if (data['ttl'] > 0) {
-        await _broadcast({...data, 'ttl': data['ttl'] - 1}, except: from);
+      try {
+        await _roomRouter?.receive(from, MeshPacket.fromEnvelope(data));
+      } on FormatException {
+        // ข้อมูลเสียหายไม่ถูกเก็บในประวัติหรือ cache dedup
+      } on TypeError {
+        // ข้อมูลผิดชนิดต้องไม่ทำให้เส้นทางรับวิทยุหยุดทำงาน
       }
       return;
     }
@@ -2230,6 +2289,7 @@ class NearbyMeshService extends ChangeNotifier {
     SavedLocation? location,
     String? messageId,
     String? recipientUser,
+    DateTime? createdAt,
   }) async {
     if (location != null &&
         (!location.latitude.isFinite ||
@@ -2263,6 +2323,7 @@ class NearbyMeshService extends ChangeNotifier {
       'caseId': ?caseId,
     });
     if (messageId != null) env['id'] = messageId;
+    if (createdAt != null) env['at'] = createdAt.toUtc().toIso8601String();
     if (recipientUser != null) env['recipientUser'] = recipientUser;
     env['peerName'] = peerName ?? peerForDevice(target)?.name ?? 'คนใกล้เคียง';
     await chats.save(owner, target, env, incoming: false);
@@ -2406,6 +2467,7 @@ class NearbyMeshService extends ChangeNotifier {
     String? caseId,
     String? messageId,
     String? recipientUser,
+    DateTime? createdAt,
   }) async {
     await _sessionWork;
     final owner = _ownerId;
@@ -2417,6 +2479,7 @@ class NearbyMeshService extends ChangeNotifier {
     }
     if (messageId != null && await chats.find(owner, messageId) != null) return;
     final env = _envelope('media', {});
+    if (createdAt != null) env['at'] = createdAt.toUtc().toIso8601String();
     if (messageId != null) env['id'] = messageId;
     if (recipientUser != null) env['recipientUser'] = recipientUser;
     final stored = await media.files.importFile(owner, env['id'], path, type);
@@ -2578,6 +2641,7 @@ class NearbyMeshService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _closeRoomRouter();
     _healthTimer?.cancel();
     _mediaNotifyTimer?.cancel();
     media.cancel();
@@ -2602,6 +2666,7 @@ class NearbyMeshService extends ChangeNotifier {
     await _shutdownRadios();
     running = false;
     connected.clear();
+    _roomTransport?.updatePeers(connected);
     peers.clear();
     _discoveryHints.clear();
     _discoveredAt.clear();
