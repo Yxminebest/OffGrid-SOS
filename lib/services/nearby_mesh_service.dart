@@ -459,6 +459,7 @@ class NearbyMeshService extends ChangeNotifier {
   String? _ownerId;
   Future<void> _sessionWork = Future<void>.value();
   int _sessionGeneration = 0;
+  // sessionGeneration กันงานบัญชีเก่า; radioGeneration กัน callback จากวิทยุรอบเก่า
   int _radioGeneration = 0;
   bool needsPermissionSettings = false;
   bool needsLocationSettings = false;
@@ -2112,6 +2113,7 @@ class NearbyMeshService extends ChangeNotifier {
       );
       await _sendTo(
         origin,
+        // ACK หลังบันทึกสำเร็จ และตอบซ้ำได้หาก ACK รอบก่อนหายระหว่างทาง
         _envelope('ack', {'target': origin, 'messageId': data['id']}),
       );
       if (!fresh || _ownerId != owner) return;

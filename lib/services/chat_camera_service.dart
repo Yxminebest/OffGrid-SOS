@@ -66,6 +66,7 @@ class ChatCameraService {
         'caseId': ?caseId,
         'conversationId': ?conversationId,
       };
+      // เก็บเจ้าของ ห้อง และ messageId ก่อนออกไปกล้อง เพื่อกู้คืนหลัง Activity ถูกปิด
       await prefs.setString(pendingKey, jsonEncode(destination));
       final image = await ExternalActivity.run(
         () async => video && pickVideo != null

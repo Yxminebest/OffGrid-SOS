@@ -30,7 +30,7 @@ lib/app/theme.dart → MaterialApp theme/darkTheme → หน้าจอแล�
 | lib/app/theme.dart | นำค่าที่สร้างแล้วไปตั้ง ThemeData ของปุ่ม ฟอร์ม การ์ด ฟอนต์ และ navigation |
 | lib/widgets/app_card.dart | ตัวอย่างการ์ดที่ใช้สีและ radius/padding จากส่วนกลาง |
 | lib/widgets/brand_mark.dart | ตัวอย่างโลโก้ที่ใช้สีจาก CSS ผ่าน AppColors |
-| test/css_styles_test.dart | ตรวจว่าแก้ CSS แล้วค่าที่สร้างเปลี่ยนจริง และไฟล์ generated ไม่ค้างรุ่นเก่า |
+| `dart run tool/generate_styles.dart --check` | ตรวจว่าไฟล์ generated ตรงกับ CSS/template ปัจจุบัน |
 | tool/build_android.ps1 | สร้างสไตล์จาก CSS → analyze → test → สร้าง APK |
 
 ## วิธีแก้และสร้างแอป

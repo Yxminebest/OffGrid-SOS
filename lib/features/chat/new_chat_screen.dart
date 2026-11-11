@@ -45,6 +45,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
   }
 
   Future<void> _runSearch(String value) async {
+    // Debounce limits request frequency, but searches can overlap and finish out of order.
     setState(() {
       _loading = true;
       _error = null;

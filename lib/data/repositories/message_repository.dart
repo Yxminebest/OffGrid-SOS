@@ -198,6 +198,8 @@ class MessageRepository {
     required String currentUserName,
     required String peerName,
   }) async {
+    // cloudRows ต้องเป็น snapshot ครบทั้งห้อง; ห้ามส่งแค่หน้าเดียวหรือ delta
+    // เพราะด้านล่างลบแถวที่ synced แล้วแต่ไม่อยู่ใน snapshot นี้
     final cloudIds = <String>{};
     for (final row in cloudRows) {
       cloudIds.add(row['id'].toString());

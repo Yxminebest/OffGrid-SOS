@@ -373,6 +373,7 @@ class _UnifiedConversationScreenState extends State<UnifiedConversationScreen> {
     if (_reading) return;
     _reading = true;
     try {
+      // A unified room can have both local Nearby and cloud unread state.
       if (contact.device != null) {
         await chat.mesh.chats.markRead(widget.me.id, contact.device!);
       }
@@ -778,6 +779,7 @@ class _UnifiedMediaState extends State<_UnifiedMedia> {
   late Future<String?> path = _resolve();
   Future<String?> _resolve() async {
     final m = widget.item;
+    // Prefer cached bytes for offline use; only fetch a signed cloud URL when online.
     if (m.path != null) return m.path;
     if (m.bytes?.isNotEmpty ?? false) {
       await ChatMediaCache.instance.put(widget.owner, m.id, m.bytes!);

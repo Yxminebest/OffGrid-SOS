@@ -111,6 +111,7 @@ export default {
         )
       }
 
+      // Delete Auth last: storage cleanup must succeed while the owner still exists.
       const { error } =
         await ctx.supabaseAdmin.auth.admin.deleteUser(userId)
 

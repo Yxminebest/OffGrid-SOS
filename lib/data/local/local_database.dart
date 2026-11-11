@@ -31,6 +31,7 @@ class LocalDatabase {
   Future<Database> get database async {
     if (_database != null) return _database!;
     try {
+      // แชร์ Future เปิดฐานข้อมูล เพื่อไม่ให้หลาย service เปิดไฟล์เดียวกันพร้อมกัน
       return _database = await (_opening ??= openOffgridDatabase());
     } catch (_) {
       _opening = null;

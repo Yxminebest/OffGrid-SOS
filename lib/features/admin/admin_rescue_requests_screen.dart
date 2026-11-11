@@ -72,6 +72,7 @@ class _AdminRescueRequestsScreenState extends State<AdminRescueRequestsScreen>
     }
 
     try {
+      // Rescue documents are private; open them only through a short-lived signed URL.
       final url = await AuthService.createRescueDocumentSignedUrl(path);
 
       final opened = await launchUrl(

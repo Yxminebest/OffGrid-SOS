@@ -88,6 +88,7 @@ class _LocationMapScreenState extends State<LocationMapScreen>
 
   Future<void> _locate() async {
     if (_locating) return;
+    // A generation token prevents a delayed GPS result from reviving a cancelled watch.
     final generation = ++_gpsGeneration;
     await _gpsWatch?.cancel();
     if (!mounted) return;

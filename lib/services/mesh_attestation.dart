@@ -45,6 +45,7 @@ class MeshAttestation {
         return null;
       }
       final p = jsonDecode(utf8.decode(bytes)) as Map;
+      // ผูกสิทธิ์กับทั้งบัญชี อุปกรณ์ และกุญแจ ไม่ใช่ตรวจลายเซ็น issuer อย่างเดียว
       if (p['v'] != 1 ||
           p['iss'] != issuer ||
           p['sub'] is! String ||

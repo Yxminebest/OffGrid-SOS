@@ -79,6 +79,7 @@ class _OffGridSosAppState extends State<OffGridSosApp> {
             break;
 
           case AuthChangeEvent.signedOut:
+            // Token หมดอายุขณะออฟไลน์ยังใช้ตัวตนในเครื่องได้; clear() คือการ logout จริง
             if (!AuthService.isClearing) {
               final local = await AuthService.restoreLocalIdentity();
               if (local != null && mounted) {

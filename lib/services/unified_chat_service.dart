@@ -1083,6 +1083,7 @@ class UnifiedChatService {
     ChatInboxEntry entry,
     bool Function() current,
   ) async {
+    // บัญชีที่ผูกแล้วต้องเลือก peer ที่พิสูจน์ userId ปัจจุบัน เพื่อไม่ส่งผิดตัวตน
     final c = entry.contact;
     final peer = c.user == null
         ? (c.device == null ? null : mesh.peerForDevice(c.device!))

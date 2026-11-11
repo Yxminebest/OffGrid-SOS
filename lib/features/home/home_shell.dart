@@ -46,6 +46,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   late AppUser _me;
   String? _lastRescueNotice;
   int _index = 0;
+  // คง stream เดิมข้าม rebuild เพื่อไม่ให้สถานะ SOS กระพริบกลับเป็นว่างเมื่อ resume
   late final _sosRecords = SosRepository().watchForUser(widget.me.id);
   final _visitedTabs = <int>{0};
   int _nearbyUnread = 0;

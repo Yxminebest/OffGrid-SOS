@@ -120,6 +120,7 @@ class _SosResponsePanelState extends State<SosResponsePanel> {
                 r['outgoing'] == false &&
                 ((r['envelope'] as Map)['data'] as Map)['category'] ==
                     'receipt' &&
+                // Ignore receipts for an older edit of the same SOS case.
                 (((r['envelope'] as Map)['data'] as Map)['revision'] as int) >=
                     widget.revision,
           )

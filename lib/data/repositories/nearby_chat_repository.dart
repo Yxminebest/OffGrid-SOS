@@ -238,6 +238,7 @@ class NearbyChatRepository {
     Map<String, dynamic> cloud, {
     String? localPath,
   }) async {
+    // ประวัติที่กู้คืนเป็น historical เพื่อไม่ให้คิวส่งข้อความเก่าไปหาผู้รับอีกครั้ง
     final envelope = Map<String, dynamic>.from(cloud['envelope'] as Map);
     final db = await _local.database;
     await db.transaction((txn) async {

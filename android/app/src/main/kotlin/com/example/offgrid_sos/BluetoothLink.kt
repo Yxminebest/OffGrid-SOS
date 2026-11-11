@@ -32,6 +32,7 @@ class BluetoothLink(private val context: Context, private val channel: MethodCha
         @Volatile var accepted = false
     }
     private val approvals = ConcurrentHashMap<String, Approval>()
+    // Protocol marker ต้องตรงทั้งสองเครื่อง; การ bond ของ Android ยังไม่ใช่การอนุมัติในแอป
     private val approvalHeader = "SOSBROO_BT_APPROVAL_V1"
     private val incomingSockets = ConcurrentHashMap<String, Boolean>()
     @Volatile private var server: BluetoothServerSocket? = null
@@ -275,6 +276,7 @@ class BluetoothLink(private val context: Context, private val channel: MethodCha
         pool.execute {
             try {
                 val frame = ByteArrayOutputStream()
+                // JSON หนึ่งเฟรมจบด้วย LF; Dart เข้ารหัส binary เป็น base64 ก่อนส่ง
                 val input = BufferedInputStream(socket.inputStream, 32768)
                 while (generation == epoch) {
                     val next = input.read()

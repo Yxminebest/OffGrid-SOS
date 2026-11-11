@@ -34,6 +34,7 @@ class _RescueScreenState extends State<RescueScreen> {
     super.dispose();
   }
 
+  // This list is Nearby mesh state; cloud SOS cases are not included here.
   List<MeshMessage> get cases => mesh.currentSosCases;
 
   Future<void> toggle() async {

@@ -126,6 +126,7 @@ class _EmergencyHomePanelState extends State<EmergencyHomePanel>
         message: 'ต้องการความช่วยเหลือฉุกเฉิน',
         location: widget.location.preparedLocation,
       );
+      // เปิดรายละเอียดหลังบันทึกในเครื่อง; GPS/วิทยุช้าต้องไม่หน่วงการแจ้งเหตุ
       unawaited(startDelivery(record));
       widget.onDetails();
     } catch (_) {

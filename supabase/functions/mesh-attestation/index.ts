@@ -60,6 +60,7 @@ Deno.serve(async req => {
     if (!nacl.sign.detached.verify(bytes(canonical), signature, ed)) {
       return reply({ error: 'Device possession proof rejected' }, 403)
     }
+    // Decode claims only after getUser validates the token above; decoding is not authentication.
     const jwtPayload = match[1].split('.')[1]
     const claims = JSON.parse(new TextDecoder().decode(from64(
       jwtPayload.replace(/-/g, '+').replace(/_/g, '/'))))

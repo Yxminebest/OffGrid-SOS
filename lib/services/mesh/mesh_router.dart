@@ -105,6 +105,7 @@ class MeshRouter {
       'delivered': false,
       'sent': <String>[],
     };
+    // เก็บก่อนส่งให้ UI/relay เพื่อให้เปิดแอปใหม่แล้วยัง retry packet เดิมได้
     await store.put(message.id, record);
     dedup.remember(message.id);
     _records[message.id] = record;

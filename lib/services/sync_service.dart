@@ -549,6 +549,7 @@ class SyncService {
   }
 
   void _requireSession(String userId) {
+    // เรียกซ้ำหลัง await ก่อนเขียนผล เพราะผู้ใช้อาจ logout ระหว่าง HTTP request
     if (_stopping || _supabase.auth.currentUser?.id != userId) {
       throw StateError('Sync session ended.');
     }

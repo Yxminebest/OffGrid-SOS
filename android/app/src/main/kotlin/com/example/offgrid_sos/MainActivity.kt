@@ -50,6 +50,7 @@ class MainActivity : FlutterActivity() {
     }
     override fun provideFlutterEngine(context: Context): FlutterEngine {
         val cache = FlutterEngineCache.getInstance()
+        // ใช้ engine เดิมเพื่อรักษา session/ลิงก์วิทยุเมื่อ Activity ถูกสร้างใหม่
         cache.get("offgrid_messaging")?.let {
             notificationChannel = MethodChannel(it.dartExecutor.binaryMessenger, "com.offgridsos/platform")
             return it

@@ -151,6 +151,7 @@ class SyncQueueRepository {
       };
 
   Future<bool> _isCurrent(Transaction txn, SyncJob job) async {
+    // ผล request เก่าต้องไม่ลบงาน revision ใหม่ที่ผู้ใช้แก้ระหว่างรอเครือข่าย
     final current = await _local.syncQueueStore.record(job.id!).get(txn);
     return current != null &&
         current['entity_id'] == job.entityId &&

@@ -30,6 +30,7 @@ class BundledPathumMap {
       data.offsetInBytes,
       data.lengthInBytes,
     );
+    // index และ tiles.pack เป็นชุดเดียวกัน; เปลี่ยนแผนที่ต้องสร้าง hash/offset ใหม่ด้วย
     if (index['format'] != 1 ||
         bytes.length != index['bytes'] ||
         await compute(_digest, bytes) != index['sha256']) {

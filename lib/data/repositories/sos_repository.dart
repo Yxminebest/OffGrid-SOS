@@ -185,6 +185,7 @@ class SosRepository {
     LocalSosRecord record,
     String operation,
   ) async {
+    // SOS และงานซิงก์ต้อง commit ใน transaction เดียวกัน ไม่ให้มีเหตุที่ตกคิว
     await _local.sosStore.record(record.id).put(txn, record.toLocalMap());
     if (record.ownerUserId != null) {
       await _queue.enqueue(

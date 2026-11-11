@@ -15,6 +15,7 @@ class MeshRoom {
     bool incoming = true,
     bool synced = false,
   }) async {
+    // ผู้เรียกต้องตรวจ certificate/ลายเซ็นก่อนรับ event; store นี้ทำ dedup เท่านั้น
     final db = await local.database;
     return db.transaction((txn) async {
       final record = store.record('$owner:${event['origin']}:${event['id']}');
@@ -76,6 +77,7 @@ class MeshRoom {
         });
 
   static List<Map<String, dynamic>> project(List<Map<String, dynamic>> events) {
+    // สร้างข้อความก่อนใช้คำสั่งแก้ไข เพื่อรองรับ action ที่มาถึงก่อนข้อความต้นฉบับ
     final messages = <String, Map<String, dynamic>>{};
     final actions = <Map<String, dynamic>>[];
     for (final event in events) {

@@ -36,6 +36,7 @@ class MeshCrypto {
   }
 
   List<int> _canonical(Map value) => utf8.encode(
+    // ลำดับ key ต้องตรงกับ Edge Function; เปลี่ยนรูปแบบนี้กระทบลายเซ็นอุปกรณ์เดิม
     jsonEncode(
       Map.fromEntries(
         value.entries.where((e) => e.key != 'signature').toList()

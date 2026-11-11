@@ -276,6 +276,7 @@ class NearbyMediaTransfer {
     final body = frame['data'] as Map;
     if (who == null || body['target'] != device()) return;
     if (frame['kind'] == 'media_reply') {
+      // จับคู่ทั้ง request ID และ peer; ACK ของไฟล์จากอีกเครื่องใช้แทนกันไม่ได้
       final waiting = _waiting[body['replyTo']];
       if (waiting != null &&
           waiting.peer == origin &&
