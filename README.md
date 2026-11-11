@@ -8,9 +8,9 @@
 |---|---|
 | GitHub | [Yxminebest/OffGrid-SOS](https://github.com/Yxminebest/OffGrid-SOS) |
 | README | [เอกสารแนะนำโครงการ](https://github.com/Yxminebest/OffGrid-SOS#readme) |
-| APK ล่าสุดในเครื่อง | `build/app/outputs/flutter-apk/app-release.apk` — ตรวจ metadata แล้วเป็น **0.10.15+46** |
+| APK ล่าสุดในเครื่อง | `build/app/outputs/flutter-apk/app-release.apk` — รุ่นสำหรับส่งงาน **0.1** |
 
-**รุ่นซอร์สโค้ด:** `0.10.15+46` ตาม [pubspec.yaml](pubspec.yaml) ชื่อแสดงผลคือ SOSBROO ส่วนชื่อ repository และ package Flutter ยังคงใช้ OffGrid SOS / `offgrid_sos`
+**รุ่นซอร์สโค้ดสำหรับส่งงาน:** `0.1` ชื่อแสดงผลคือ SOSBROO ส่วนชื่อ repository และ package Flutter ยังคงใช้ OffGrid SOS / `offgrid_sos`
 
 ไฟล์ใน `build/` ไม่ติดไปกับการ clone GitHub จึงต้องส่ง APK แยกด้วย ค่า SHA-256 ของ APK ที่ตรวจครั้งนี้:
 
