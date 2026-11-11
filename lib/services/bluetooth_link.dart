@@ -8,6 +8,8 @@ class BluetoothLink {
   Future<void> Function(String id, String name)? onConnected;
   void Function(String id)? onDisconnected;
   void Function(String id, Uint8List bytes)? onBytes;
+  void Function(String id, String name)? onRequest;
+  void Function(String id)? onRequestClosed;
   Future<bool> start() async {
     final generation = ++_generation;
     _channel.setMethodCallHandler((call) async {
@@ -15,6 +17,10 @@ class BluetoothLink {
       final args = Map<String, dynamic>.from(call.arguments as Map);
       final id = args['id'] as String;
       switch (args['kind']) {
+        case 'request':
+          onRequest?.call(id, args['name'] as String);
+        case 'requestClosed':
+          onRequestClosed?.call(id);
         case 'connected':
           await onConnected?.call(id, args['name'] as String);
         case 'disconnected':
@@ -41,6 +47,15 @@ class BluetoothLink {
 
   Future<void> connect(String id) =>
       _channel.invokeMethod('connect', {'id': id});
+  Future<List<Map<String, String>>> discover() async {
+    final rows = await _channel.invokeListMethod<dynamic>('discover') ?? [];
+    return rows.map((r) => Map<String, String>.from(r as Map)).toList();
+  }
+
+  Future<void> stopDiscovery() => _channel.invokeMethod('stopDiscovery');
+  Future<void> discoverable() => _channel.invokeMethod('discoverable');
+  Future<void> approve(String id, bool accepted) =>
+      _channel.invokeMethod('approve', {'id': id, 'accepted': accepted});
   Future<void> send(String id, Uint8List bytes) =>
       _channel.invokeMethod('send', {'id': id, 'bytes': bytes});
   Future<void> disconnect(String id) =>

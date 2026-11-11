@@ -103,7 +103,7 @@ class NearbyPeoplePanel extends StatelessWidget {
                               ? 'หน่วยกู้ภัย · พร้อมสนทนา'
                               : ready
                               ? 'พร้อมสนทนา'
-                              : 'กำลังเชื่อมต่ออัตโนมัติ…',
+                              : 'ยังไม่เชื่อมต่อ • เลือกเชื่อมต่อในหน้าใกล้เคียง',
                           style: TextStyle(color: color),
                         ),
                         trailing: ready

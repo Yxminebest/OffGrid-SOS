@@ -529,6 +529,50 @@ void main() {
   );
 
   test(
+    'A and B exchange one private message each way through C after direct link loss',
+    () async {
+      await pair('a', 'b');
+      await pair('a', 'c');
+      await pair('b', 'c');
+      await nodes['a']!.handleEnvelope('b', {
+        'v': 1, 'id': 'ab-link-lost', 'kind': 'goodbye',
+        'origin': nodes['b']!.deviceId, 'ttl': 0, 'data': <String, dynamic>{},
+      });
+      await nodes['b']!.handleEnvelope('a', {
+        'v': 1, 'id': 'ba-link-lost', 'kind': 'goodbye',
+        'origin': nodes['a']!.deviceId, 'ttl': 0, 'data': <String, dynamic>{},
+      });
+      await nodes['a']!.refreshRoutes();
+      await nodes['b']!.refreshRoutes();
+      await nodes['c']!.refreshRoutes();
+      await drain();
+      final aid = nodes['a']!.deviceId, bid = nodes['b']!.deviceId;
+      expect(nodes['a']!.peerForDevice(bid)?.hops, 2);
+      expect(nodes['b']!.peerForDevice(aid)?.hops, 2);
+      history.clear();
+      await nodes['a']!.sendDirect(target: bid, text: 'A to B via C');
+      await drain();
+      await nodes['b']!.sendDirect(target: aid, text: 'B to A via C');
+      await drain();
+      final atB = await nodes['b']!.chats.watchMessages('b', aid).first;
+      final atA = await nodes['a']!.chats.watchMessages('a', bid).first;
+      final incomingAtB = atB.where((m) => m['incoming'] == true).toList();
+      final incomingAtA = atA.where((m) => m['incoming'] == true).toList();
+      expect(incomingAtB, hasLength(1));
+      expect(incomingAtA, hasLength(1));
+      expect((incomingAtB.single['envelope'] as Map)['data']['text'], 'A to B via C');
+      expect((incomingAtA.single['envelope'] as Map)['data']['text'], 'B to A via C');
+      final routed = history.where((p) => p.data['kind'] == 'routed').toList();
+      expect(routed, isNotEmpty);
+      final original = routed.firstWhere((p) => p.from == 'a' && p.to == 'c');
+      await nodes['c']!.handleEnvelope(original.from, original.data);
+      await drain();
+      expect((await nodes['b']!.chats.watchMessages('b', aid).first).where((m) => m['incoming'] == true), hasLength(1));
+      expect((await nodes['a']!.chats.watchMessages('a', bid).first).where((m) => m['incoming'] == true), hasLength(1));
+    },
+  );
+
+  test(
     'multi-hop private text is encrypted through B and ACK returns to A',
     () async {
       await pair('a', 'b');

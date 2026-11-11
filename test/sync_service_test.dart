@@ -27,8 +27,11 @@ const me = AppUser(
   isMember: true,
 );
 
-Future<void> waitUntil(Future<bool> Function() ready) async {
-  final deadline = DateTime.now().add(const Duration(seconds: 5));
+Future<void> waitUntil(
+  Future<bool> Function() ready, {
+  Duration timeout = const Duration(seconds: 5),
+}) async {
+  final deadline = DateTime.now().add(timeout);
   while (!await ready()) {
     if (DateTime.now().isAfter(deadline)) {
       throw TimeoutException('Sync did not finish');
@@ -187,6 +190,64 @@ void main() {
       expect(uploaded, hasLength(2));
     },
   );
+
+  test('successful room archive resets the retry backoff', () async {
+    final room = MeshRoom(local);
+    Map<String, dynamic> event(String id) => {
+      'id': id,
+      'v': 1,
+      'kind': 'room',
+      'origin': 'device-a',
+      'sender': 'A',
+      'at': DateTime.now().toUtc().toIso8601String(),
+      'ttl': 6,
+      'hopCount': 0,
+      'data': {'text': id},
+    };
+
+    await room.save(me.id, event('room-first'), incoming: false);
+    var archiveWrites = 0;
+    handle = (request) async {
+      request.response.headers.contentType = ContentType.json;
+      if (request.method == 'POST') {
+        archiveWrites++;
+        if (archiveWrites == 1 || archiveWrites == 3) {
+          request.response.statusCode = 503;
+          request.response.write('{"message":"temporary failure"}');
+        } else {
+          request.response.write('[]');
+        }
+      } else {
+        request.response.write('[]');
+      }
+      await request.response.close();
+    };
+
+    await sync.syncNow();
+    expect(archiveWrites, 1);
+    expect(await room.unsynced(me.id), hasLength(1));
+
+    // Let the scheduled retry succeed. This room-only success must reset the
+    // failure count before the next room event is uploaded.
+    await sync.start();
+    await waitUntil(
+      () async => (await room.unsynced(me.id)).isEmpty,
+      timeout: const Duration(seconds: 8),
+    );
+    expect(archiveWrites, 2);
+
+    await room.save(me.id, event('room-second'), incoming: false);
+    await waitUntil(() async => archiveWrites == 3);
+    expect(await room.unsynced(me.id), hasLength(1));
+
+    // A reset gives this failure the initial 5-second delay. Without the reset
+    // it would inherit the second 15-second delay and remain pending here.
+    await waitUntil(
+      () async => (await room.unsynced(me.id)).isEmpty,
+      timeout: const Duration(seconds: 8),
+    );
+    expect(archiveWrites, 4);
+  });
 
   test(
     'archive media uploads once even if metadata upsert must retry',

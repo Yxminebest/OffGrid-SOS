@@ -4,6 +4,7 @@ import 'package:offgrid_sos/services/bluetooth_link.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sembast/sembast_memory.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:offgrid_sos/data/local/local_database.dart';
 import 'package:offgrid_sos/models/user.dart';
 import 'package:offgrid_sos/services/auth_service.dart';
@@ -109,6 +110,56 @@ void main() {
       await db.close();
     },
   );
+
+  test('automatic startup preserves the saved Bluetooth transport', () async {
+    SharedPreferences.setMockInitialValues({'background_messaging': false});
+    final db = await newDatabaseFactoryMemory().openDatabase('resume-bt');
+    final local = LocalDatabase.withDatabase(db);
+    await local.metaStore.record('nearby_radio:${userA.id}').put(db, {
+      'owner_id': userA.id,
+      'mode': 'bluetooth',
+    });
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final calls = <String>[];
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('com.offgridsos/platform'),
+      (_) async => 30,
+    );
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('com.offgridsos/bluetooth'),
+      (call) async {
+        calls.add(call.method);
+        if (call.method == 'start') return true;
+        if (call.method == 'paired') return <dynamic>[];
+        return null;
+      },
+    );
+    final mesh = NearbyMeshService.withDatabase(local);
+    try {
+      await mesh.resumePreferred(userA, startIfUnset: true);
+      expect(mesh.running, isTrue);
+      expect(calls, contains('start'));
+      expect(await mesh.preferredTransport(userA.id), 'bluetooth');
+      calls.clear();
+      // Even without a bonded peer, the listener must be recovered on resume.
+      await mesh.resumeConnections(userA);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(calls, contains('start'));
+    } finally {
+      mesh.dispose();
+      await BluetoothLink.instance.stop();
+      messenger.setMockMethodCallHandler(
+        const MethodChannel('com.offgridsos/platform'),
+        null,
+      );
+      messenger.setMockMethodCallHandler(
+        const MethodChannel('com.offgridsos/bluetooth'),
+        null,
+      );
+      await db.close();
+    }
+  });
 
   test(
     'manual stop cancels Bluetooth startup while permission checks are pending',

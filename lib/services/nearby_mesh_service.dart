@@ -891,7 +891,9 @@ class NearbyMeshService extends ChangeNotifier {
 
   final _autoAttempts = <String, DateTime>{};
   final _autoPending = <String>{};
-  bool automaticConnections = true;
+  // Discovery is passive: every new radio link requires a user request and
+  // approval on the receiving phone, including previously paired devices.
+  final bool automaticConnections = false;
 
   Future<void> _connectAutomatically(String endpoint) async {
     final generation = _radioGeneration;
@@ -967,7 +969,26 @@ class NearbyMeshService extends ChangeNotifier {
     final modern = RegExp(
       r'^OG10:[SRN]:([A-Za-z0-9_-]{1,64}):',
     ).firstMatch(raw);
-    if (modern != null) _discoveryHints[endpoint] = modern.group(1)!;
+    if (modern != null) {
+      final hint = modern.group(1)!;
+      // Android rotates endpoint IDs after advertising restarts. Retire the
+      // previous discovery, not just its visible row, so retries use the new ID.
+      for (final old in _discoveryHints.keys.toList()) {
+        if (old == endpoint ||
+            _discoveryHints[old] != hint ||
+            connected.contains(old)) {
+          continue;
+        }
+        _visibleEndpoints.remove(old);
+        peers.remove(old);
+        discoveredModes.remove(old);
+        _discoveryHints.remove(old);
+        _discoveredAt.remove(old);
+        _autoAttempts.remove(old);
+        _passiveSince.remove(old);
+      }
+      _discoveryHints[endpoint] = hint;
+    }
     discoveredModes[endpoint] = value.mode;
     unawaited(_connectAutomatically(endpoint));
     notifyListeners();
@@ -1043,7 +1064,7 @@ class NearbyMeshService extends ChangeNotifier {
         busy) {
       return;
     }
-    if (mode == 'bluetooth' && !startIfUnset) {
+    if (mode == 'bluetooth') {
       await startBluetooth(user);
     } else if (mode == 'nearby' || startIfUnset) {
       await start(user.fullName, user: user);
@@ -1152,6 +1173,22 @@ class NearbyMeshService extends ChangeNotifier {
       return false;
     }
     final link = BluetoothLink.instance;
+    link.onRequest = (id, name) {
+      if (generation == _radioGeneration) {
+        requestPairing(id: id, name: name, token: '');
+      }
+    };
+    link.onRequestClosed = (id) {
+      if (generation != _radioGeneration) return;
+      _pairingQueue.removeWhere((request) => request.id == id);
+      if (pendingPeer == id) {
+        pendingPeer = null;
+        pendingName = null;
+        pendingToken = null;
+        _nextPairing();
+        notifyListeners();
+      }
+    };
     link.onConnected = (id, name) async {
       if (generation != _radioGeneration) return;
       peers[id] = name;
@@ -1171,21 +1208,8 @@ class NearbyMeshService extends ChangeNotifier {
     }
     running = true;
     await _rememberTransport('bluetooth');
-    // Bluetooth RFCOMM can only connect to Android-bonded devices. Queue every
-    // bonded peer automatically so users do not have to reopen the picker after
-    // a reconnect; devices without SOSBROO simply fail and are retried later.
-    try {
-      for (final device in await link.paired()) {
-        final id = device['id'];
-        if (id == null || id.isEmpty) continue;
-        peers[id] = device['name'] ?? 'Bluetooth';
-        _bluetoothReconnect.add(id);
-        unawaited(_connectAutomatically(id));
-      }
-    } catch (_) {
-      // The listener remains usable even when Android temporarily hides the
-      // bonded-device list; the user can still choose a device from the UI.
-    }
+    // Bonded devices are history, not proof that a phone is currently nearby.
+    // The picker scans for new phones; only an explicit tap starts a connection.
     _healthTimer ??= Timer.periodic(
       const Duration(seconds: 5),
       (_) => unawaited(_healthCheck()),
@@ -1199,6 +1223,7 @@ class NearbyMeshService extends ChangeNotifier {
     final generation = _radioGeneration;
     final started = _connectingSince[id];
     if (connected.contains(id) ||
+        (id.startsWith('bt:') && started != null) ||
         (!force &&
             started != null &&
             DateTime.now().difference(started) < const Duration(seconds: 25))) {
@@ -1211,6 +1236,7 @@ class NearbyMeshService extends ChangeNotifier {
       _autoAttempts.remove(id);
     }
     _connectingSince[id] = DateTime.now();
+    _notify('กำลังขอเชื่อมต่อ • รออีกเครื่องกดยืนยัน');
     try {
       if (id.startsWith('bt:')) {
         await BluetoothLink.instance.connect(id);
@@ -1232,6 +1258,11 @@ class NearbyMeshService extends ChangeNotifier {
     } catch (e) {
       _connectingSince.remove(id);
       _notify('เชื่อมต่อไม่สำเร็จ: $e');
+    } finally {
+      if (id.startsWith('bt:')) {
+        _connectingSince.remove(id);
+        if (generation == _radioGeneration) notifyListeners();
+      }
     }
   }
 
@@ -1283,7 +1314,9 @@ class NearbyMeshService extends ChangeNotifier {
       return;
     }
     try {
-      if (accepted) {
+      if (id.startsWith('bt:')) {
+        await BluetoothLink.instance.approve(id, accepted);
+      } else if (accepted) {
         final generation = _radioGeneration;
         await _nearby.acceptConnection(
           id,
@@ -1693,7 +1726,9 @@ class NearbyMeshService extends ChangeNotifier {
     // it again before retrying peers so a reconnect does not depend on the user
     // reopening the Bluetooth screen.
     if (running &&
-        (_bluetoothReconnect.isNotEmpty ||
+        ((BluetoothLink.instance.running &&
+                (await preferredTransport(_ownerId ?? '') == 'bluetooth')) ||
+            _bluetoothReconnect.isNotEmpty ||
             connected.any((id) => id.startsWith('bt:')))) {
       try {
         await BluetoothLink.instance.start();

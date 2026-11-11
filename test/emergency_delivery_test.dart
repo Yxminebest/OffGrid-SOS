@@ -110,7 +110,7 @@ void main() {
   );
 
   test(
-    'discovered phones connect automatically without a tap; duplicate discoveries are throttled',
+    'discovered phones never connect without an explicit user request',
     () async {
       final db = await newDatabaseFactoryMemory().openDatabase(
         'auto-discovery',
@@ -122,10 +122,32 @@ void main() {
       mesh.discovered('phone-b', 'OG9:N:Neighbour');
       expect(mesh.peers['phone-b'], 'Neighbour');
       await Future<void>.delayed(const Duration(milliseconds: 1300));
-      expect(mesh.attempts, ['phone-b']);
+      expect(mesh.attempts, isEmpty);
       mesh.discovered('phone-b', 'OG9:N:Neighbour');
       await Future<void>.delayed(const Duration(milliseconds: 1300));
-      expect(mesh.attempts, ['phone-b']);
+      expect(mesh.attempts, isEmpty);
+      mesh.dispose();
+      await db.close();
+    },
+  );
+
+  test(
+    'rotated discovery retires the old name and cancels its queued connection',
+    () async {
+      final db = await newDatabaseFactoryMemory().openDatabase(
+        'rotate-connect',
+      );
+      final mesh = AutoMesh(LocalDatabase.withDatabase(db));
+      await mesh.initializeForUser(me);
+      mesh.running = true;
+      // A rotated endpoint must replace the old name without initiating a link.
+      mesh.discovered('old-endpoint', 'OG10:N:zzzzzz:Old name');
+      mesh.discovered('new-endpoint', 'OG10:S:zzzzzz:New name');
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      expect(mesh.peers, {'new-endpoint': 'New name'});
+      expect(mesh.visiblePeers, {'new-endpoint': 'New name'});
+      expect(mesh.attempts, isEmpty);
+      expect(mesh.discoveredModes.containsKey('old-endpoint'), isFalse);
       mesh.dispose();
       await db.close();
     },
@@ -147,7 +169,7 @@ void main() {
     },
   );
   test(
-    'a still-discovered phone remains reconnectable after its link drops',
+    'a discovered phone stays visible after disconnect but does not reconnect automatically',
     () async {
       final db = await newDatabaseFactoryMemory().openDatabase(
         'sleep-reconnect',
@@ -169,7 +191,7 @@ void main() {
       expect(mesh.peers['phone-b'], 'B');
       await mesh.resumeConnections(me);
       await Future<void>.delayed(const Duration(milliseconds: 1300));
-      expect(mesh.attempts, ['phone-b']);
+      expect(mesh.attempts, isEmpty);
       mesh.running = false;
       mesh.dispose();
       await db.close();
@@ -194,7 +216,7 @@ void main() {
       );
       expect(find.text('Neighbour'), findsOneWidget);
       expect(find.text('Rescue'), findsOneWidget);
-      expect(find.text('กำลังเชื่อมต่ออัตโนมัติ…'), findsNWidgets(2));
+      expect(find.text('ยังไม่เชื่อมต่อ • เลือกเชื่อมต่อในหน้าใกล้เคียง'), findsNWidgets(2));
       expect(find.text('หน่วยกู้ภัย · พร้อมสนทนา'), findsNothing);
       mesh.connected.add('rescue');
       mesh.identities['rescue'] = NearbyPeer(

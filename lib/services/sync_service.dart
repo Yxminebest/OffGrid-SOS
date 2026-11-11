@@ -340,7 +340,7 @@ class SyncService {
       _archiveFailures++;
       final delay = [5, 15, 30, 60, 300][(_archiveFailures - 1).clamp(0, 4)];
       _archiveRetryAt = DateTime.now().add(Duration(seconds: delay));
-    } else if (archiveRows.isNotEmpty) {
+    } else if (archiveRows.isNotEmpty || roomRows.isNotEmpty) {
       _archiveFailures = 0;
     }
     if (_stopping) return;

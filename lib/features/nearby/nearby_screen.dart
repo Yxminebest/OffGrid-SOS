@@ -6,7 +6,8 @@ import '../../app/theme.dart';
 import '../../models/user.dart';
 import '../../services/nearby_mesh_service.dart';
 import '../../services/app_notifications.dart';
-import '../../services/bluetooth_link.dart';
+import '../../services/android_permissions.dart';
+import 'bluetooth_device_sheet.dart';
 import '../../widgets/app_card.dart';
 import '../../widgets/page_header.dart';
 import '../../widgets/location_actions.dart';
@@ -53,7 +54,9 @@ class _NearbyScreenState extends State<NearbyScreen> {
         builder: (ctx) => AlertDialog(
           title: const Text('ตรวจสอบรหัสการจับคู่'),
           content: Text(
-            'อุปกรณ์: $name\nรหัส: $token\nยืนยันรหัสตรงกันทั้งสองเครื่อง',
+            peer.startsWith('bt:')
+                ? 'เครื่อง: $name\n${peer.substring(3)}\n\nอนุญาตให้เครื่องนี้เชื่อมต่อและรับส่งข้อมูลหรือไม่?'
+                : 'อุปกรณ์: $name\nรหัส: $token\nยืนยันรหัสตรงกันทั้งสองเครื่อง',
           ),
           actions: [
             TextButton(
@@ -62,7 +65,7 @@ class _NearbyScreenState extends State<NearbyScreen> {
             ),
             FilledButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('รหัสตรงกัน'),
+              child: Text(peer.startsWith('bt:') ? 'อนุญาต' : 'รหัสตรงกัน'),
             ),
           ],
         ),
@@ -93,50 +96,14 @@ class _NearbyScreenState extends State<NearbyScreen> {
   Future<void> bluetooth() async {
     try {
       if (!await mesh.startBluetooth(widget.me)) return;
-      final devices = await BluetoothLink.instance.paired();
+      if (!await AndroidPermissions.requestBluetoothDiscovery()) {
+        throw StateError('Bluetooth permissions required');
+      }
       if (!mounted) return;
       final id = await showModalBottomSheet<String>(
         context: context,
         isScrollControlled: true,
-        builder: (ctx) => SafeArea(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.sizeOf(ctx).height * .75,
-            ),
-            child: ListView(
-              shrinkWrap: true,
-              padding: const EdgeInsets.all(22),
-              children: [
-                Text(
-                  'Bluetooth โดยตรง',
-                  style: Theme.of(ctx).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 10),
-                const Text(
-                  'จับคู่โทรศัพท์สองเครื่องในตั้งค่า Bluetooth ก่อน แล้วเปิดรับ Bluetooth ในแอปทั้งคู่ จากนั้นเลือกเครื่องที่จะเชื่อมต่อ ใช้ได้แม้ปิด Wi-Fi',
-                ),
-                const SizedBox(height: 12),
-                TextButton.icon(
-                  onPressed: BluetoothLink.instance.settings,
-                  icon: const Icon(Icons.settings_bluetooth),
-                  label: const Text('เปิดตั้งค่า Bluetooth'),
-                ),
-                if (devices.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text('ยังไม่มีอุปกรณ์ที่จับคู่ในระบบ'),
-                  ),
-                for (final device in devices)
-                  ListTile(
-                    leading: const Icon(Icons.bluetooth_rounded),
-                    title: Text(device['name']!),
-                    trailing: const Icon(Icons.chevron_right_rounded),
-                    onTap: () => Navigator.pop(ctx, device['id']),
-                  ),
-              ],
-            ),
-          ),
-        ),
+        builder: (_) => const BluetoothDeviceSheet(),
       );
       if (id != null) await mesh.connect(id, force: true);
     } catch (_) {
@@ -228,6 +195,14 @@ class _NearbyScreenState extends State<NearbyScreen> {
                         ],
                       ),
                       const SizedBox(height: 18),
+                      Text(
+                        mesh.status,
+                        style: TextStyle(
+                          color: context.colors.muted,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
                       if (supported)
                         FilledButton.icon(
                           onPressed: mesh.busy

@@ -31,4 +31,18 @@ class AndroidPermissions {
     ].request();
     return result.values.every((status) => status.isGranted);
   }
+
+  static Future<bool> requestBluetoothDiscovery() async {
+    final sdk = await _platform.invokeMethod<int>('getAndroidSdkVersion');
+    if (sdk == null) return false;
+    final result = await [
+      Permission.locationWhenInUse,
+      if (sdk >= 31) ...[
+        Permission.bluetoothConnect,
+        Permission.bluetoothScan,
+        Permission.bluetoothAdvertise,
+      ],
+    ].request();
+    return result.values.every((status) => status.isGranted);
+  }
 }

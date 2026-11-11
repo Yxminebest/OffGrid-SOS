@@ -1,7 +1,7 @@
 name: offgrid_sos
 description: "SOSBROO: offline SOS and nearby messaging with CSS-based shared styles."
 publish_to: 'none'
-version: 0.10.14+45
+version: 0.10.15+46
 
 environment:
   sdk: ^3.12.2

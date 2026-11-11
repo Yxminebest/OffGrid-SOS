@@ -63,6 +63,10 @@ class MainActivity : FlutterActivity() {
                 when (call.method) {
                     "start" -> result.success(bluetooth.start())
                     "paired" -> result.success(bluetooth.paired())
+                    "discover" -> bluetooth.discover(result)
+                    "stopDiscovery" -> { bluetooth.finishDiscovery(); result.success(null) }
+                    "discoverable" -> { bluetooth.discoverable(); result.success(null) }
+                    "approve" -> { bluetooth.approve(call.argument<String>("id")!!, call.argument<Boolean>("accepted") == true); result.success(null) }
                     "settings" -> { app.startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); result.success(null) }
                     "connect" -> bluetooth.connect(call.argument<String>("id")!!, result)
                     "send" -> bluetooth.send(call.argument<String>("id")!!, call.argument<ByteArray>("bytes")!!, result)
