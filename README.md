@@ -9,8 +9,6 @@
 | GitHub | [Yxminebest/OffGrid-SOS](https://github.com/Yxminebest/OffGrid-SOS) |
 | README | [เอกสารแนะนำโครงการ](https://github.com/Yxminebest/OffGrid-SOS#readme) |
 | APK ล่าสุดในเครื่อง | `build/app/outputs/flutter-apk/app-release.apk` — ตรวจ metadata แล้วเป็น **0.10.15+46** |
-| APK สาธารณะ | ยังไม่มี Release ใน [GitHub Releases](https://github.com/Yxminebest/OffGrid-SOS/releases) ณ วันที่ตรวจ 11 พฤศจิกายน 2569 ต้องแนบ APK หรืออัปโหลดก่อนส่งลิงก์ให้ผู้ตรวจ |
-| TestFlight | ยังไม่มีลิงก์ที่ยืนยันได้ การสาธิต Nearby/Bluetooth ใช้ Android |
 
 **รุ่นซอร์สโค้ด:** `0.10.15+46` ตาม [pubspec.yaml](pubspec.yaml) ชื่อแสดงผลคือ SOSBROO ส่วนชื่อ repository และ package Flutter ยังคงใช้ OffGrid SOS / `offgrid_sos`
 
